@@ -2,7 +2,8 @@
     "RL6903": [
         "FPGA",
         "AudioDataPath",
-        "ClockGating"
+        "ClockGating",
+        "CTC"
     ],
     "VIP": [
         "AudioDataPath",
