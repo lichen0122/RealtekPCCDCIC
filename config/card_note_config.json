@@ -1,0 +1,19 @@
+{
+    "RL6903": [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating"
+    ],
+    "VIP": [
+        "AudioDataPath",
+        "ClockGating",
+        "SWI3S",
+        "I3C"
+    ],
+    "Tools": [
+        "\u5361\u7247\u76d2\u7b46\u8a18"
+    ],
+    "MVP2.0": [
+        "con2d"
+    ]
+}
