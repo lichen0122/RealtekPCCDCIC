@@ -3,7 +3,8 @@
         "FPGA",
         "AudioDataPath",
         "ClockGating",
-        "CTC"
+        "CTC",
+        "UVM_ENV"
     ],
     "VIP": [
         "AudioDataPath",
