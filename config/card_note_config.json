@@ -1,4 +1,7 @@
 {
+    "UVM_GOLDEN": [
+        "UVM_ENV"
+    ],
     "RL6903": [
         "FPGA",
         "AudioDataPath",
