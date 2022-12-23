@@ -9,6 +9,13 @@
         "CTC",
         "UVM_ENV"
     ],
+    "RLE1226": [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
+    ],
     "VIP": [
         "AudioDataPath",
         "ClockGating",
