@@ -36,5 +36,5 @@
         "ClockGating",
         "CTC",
         "UVM_ENV"
-    ],
+    ]
 }
