@@ -29,5 +29,12 @@
     ],
     "MVP2.0": [
         "con2d"
-    ]
+    ],
+    "RLE1121": [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
+    ],
 }
