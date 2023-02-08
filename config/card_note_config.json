@@ -36,5 +36,8 @@
         "ClockGating",
         "CTC",
         "UVM_ENV"
-    ]
+    ],
+    "RTS5881": [
+        "ISP DV"
+    ],
 }
