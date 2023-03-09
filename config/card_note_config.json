@@ -47,5 +47,19 @@
     ],
     "RTS5881": [
         "ISP DV"
+    ],
+    "ALC1800_RLE1245" : [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
+    ],
+    "ALC5526_RLE1267" : [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
     ]
 }
