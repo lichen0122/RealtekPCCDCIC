@@ -38,7 +38,8 @@
         "man power gantt"
     ],
     "MVP2.0": [
-        "con2d"
+        "con2d",
+        "pointwise"
     ],
     "RLE1121": [
         "FPGA",
