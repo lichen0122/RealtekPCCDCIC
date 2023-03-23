@@ -28,7 +28,8 @@
         "AudioDataPath",
         "ClockGating",
         "SWI3S",
-        "I3C"
+        "I3C",
+        "I2C"
     ],
     "Tools": [
         "卡片盒筆記",
