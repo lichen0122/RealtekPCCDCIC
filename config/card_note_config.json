@@ -63,5 +63,12 @@
         "ClockGating",
         "CTC",
         "UVM_ENV"
+    ],
+    "ALC5682_RL6956" : [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
     ]
 }
