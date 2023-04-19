@@ -71,5 +71,12 @@
         "ClockGating",
         "CTC",
         "UVM_ENV"
+    ],
+    "DV_Training" : [
+        "SV",
+        "UVM",
+        "LAB",
+        "PROJECT",
+        "OTHERS"
     ]
 }
