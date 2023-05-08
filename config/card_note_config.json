@@ -79,5 +79,12 @@
         "LAB",
         "PROJECT",
         "OTHERS"
+    ],
+    "ALC3326_RLE1257" : [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
     ]
 }
