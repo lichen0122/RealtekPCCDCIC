@@ -40,7 +40,8 @@
     "MVP2.0": [
         "con2d",
         "pointwise",
-        "depthwise"
+        "depthwise",
+        "fully"
     ],
     "RLE1121": [
         "FPGA",
