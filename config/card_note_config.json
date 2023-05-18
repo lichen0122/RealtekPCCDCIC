@@ -29,7 +29,8 @@
         "ClockGating",
         "SWI3S",
         "I3C",
-        "I2C"
+        "I2C",
+        "PCIE"
     ],
     "Tools": [
         "卡片盒筆記",
