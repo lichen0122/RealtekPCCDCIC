@@ -97,5 +97,10 @@
         "UVM_ENV",
         "PCIE",
         "Verification"
+    ],
+    "ISP" : [
+        "UVM_ENV",
+        "Verification",
+        "Survey"
     ]
 }
