@@ -96,6 +96,13 @@
         "CTC",
         "UVM_ENV"
     ],
+    "ALC721_RL6976" : [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
+    ],
     "CARD_READER_RL6908" : [
         "FPGA",
         "AudioDataPath",
