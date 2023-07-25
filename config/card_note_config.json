@@ -30,7 +30,9 @@
         "SWI3S",
         "I3C",
         "I2C",
-        "PCIE"
+        "PCIE",
+        "SPI",
+        "I2S"
     ],
     "Tools": [
         "卡片盒筆記",
