@@ -118,5 +118,14 @@
         "UVM_ENV",
         "Verification",
         "Survey"
+    ],
+    "ANE20" : [
+        "UVM_ENV",
+		"Algorithm Implmentation",
+		"Regreesion Implmentation",
+        "Verification",
+        "Study",
+        "con2d",
+        "fully"
     ]
 }
