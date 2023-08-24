@@ -26,6 +26,7 @@
     ],
     "VIP": [
         "AudioDataPath",
+        "AudioDataPhase",
         "ClockGating",
         "SWI3S",
         "I3C",
@@ -37,8 +38,10 @@
     "Tools": [
         "卡片盒筆記",
         "audio data path",
+        "audio data phase",
         "tcon visio auto gen",
-        "man power gantt"
+        "man power gantt",
+        "new_regression"
     ],
     "MVP2.0": [
         "con2d",
@@ -66,6 +69,7 @@
     "ALC5526_RLE1267" : [
         "FPGA",
         "AudioDataPath",
+        "AudioDataPhase",
         "ClockGating",
         "CTC",
         "UVM_ENV"
@@ -73,6 +77,7 @@
     "ALC5682_RL6956" : [
         "FPGA",
         "AudioDataPath",
+        "AudioDataPhase",
         "ClockGating",
         "CTC",
         "UVM_ENV"
@@ -87,6 +92,7 @@
     "ALC3326_RLE1257" : [
         "FPGA",
         "AudioDataPath",
+        "AudioDataPhase",
         "ClockGating",
         "CTC",
         "UVM_ENV"
@@ -94,6 +100,7 @@
     "ALC1320LV_RL6981" : [
         "FPGA",
         "AudioDataPath",
+        "AudioDataPhase",
         "ClockGating",
         "CTC",
         "UVM_ENV"
@@ -101,6 +108,7 @@
     "ALC721_RL6976" : [
         "FPGA",
         "AudioDataPath",
+        "AudioDataPhase",
         "ClockGating",
         "CTC",
         "UVM_ENV"
