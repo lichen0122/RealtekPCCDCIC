@@ -135,5 +135,21 @@
         "Study",
         "con2d",
         "fully"
+    ],
+    "ALC1320HV_RLE1255": [
+        "FPGA",
+        "AudioDataPath",
+        "AudioDataPhase",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
+    ],
+    "ALC712VB_RL6977": [
+        "FPGA",
+        "AudioDataPath",
+        "AudioDataPhase",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
     ]
 }
