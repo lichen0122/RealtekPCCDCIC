@@ -41,7 +41,8 @@
         "audio data phase",
         "tcon visio auto gen",
         "man power gantt",
-        "new_regression"
+        "new_regression",
+        "register control by port_name"
     ],
     "MVP2.0": [
         "con2d",
