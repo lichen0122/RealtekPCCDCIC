@@ -33,7 +33,8 @@
         "I2C",
         "PCIE",
         "SPI",
-        "I2S"
+        "I2S",
+        "DMIC"
     ],
     "Tools": [
         "卡片盒筆記",
