@@ -1,4 +1,7 @@
 {
-	"version": "2023-11-27",
-	"url"   :  "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPathDV.zip"
+	"version":           "2023-11-27",
+	"url"   :            "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPathDV.zip",
+	"current_version":   "AudioDataPathDV/version.json",
+	"app":               "gen_sv.exe",
+	"app_name":          "AudioDataPathDV"
 }
