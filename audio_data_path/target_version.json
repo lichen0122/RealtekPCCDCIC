@@ -1,8 +1,8 @@
 {
 	"target_directory":  "AudioDataPathDV",
 	"version":           "2023-11-27",
-	"input_url" :        "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPath/input.zip",
-	"exe_url"   :        "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPath/gen_sv.zip",
+	"input_url":         "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPath/input.zip",
+	"exe_url":           "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPath/gen_sv.zip",
 	"current_version":   "version.json",
 	"exe_name":          "gen_sv.exe"
 }
