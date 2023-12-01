@@ -81,7 +81,7 @@ class AutoUpdateGUI():
         self.path_label = ttk.Label(self.path_frame, text="請選擇路徑:", font=("微軟正黑體", 9))
         self.path_label.grid(row=1, column=0, padx=(0, 5))
         self.get_work_dir_list()
-        self.choose_work_dir = ttk.Combobox(self.path_frame, values=self.work_dir_list, width=80)
+        self.choose_work_dir = ttk.Combobox(self.path_frame, values=self.work_dir_list, width=80, state="readonly")
         if self.work_dir_list:
             self.choose_work_dir.current(0)
         self.choose_work_dir.grid(row=1, column=1)
@@ -94,7 +94,7 @@ class AutoUpdateGUI():
         self.tool_label = ttk.Label(self.tool_frame, text="請選擇工具:", font=("微軟正黑體", 9))
         self.tool_label.grid(row=0, column=0, padx=(0, 5))
         self.tool_option_list = list(self.setting.keys())
-        self.choose_tool      = ttk.Combobox(self.tool_frame, values=self.tool_option_list, width=80)
+        self.choose_tool      = ttk.Combobox(self.tool_frame, values=self.tool_option_list, width=80, state="readonly")
         self.choose_tool.current(0)
         self.choose_tool.grid(row=0, column=1)
         self.start_button    = ttk.Button(self.tool_frame, text="開啟", command=self.start_update, width=16)
@@ -128,18 +128,24 @@ class AutoUpdateGUI():
             self.add_work_dir_list(path)
 
     def start_update(self):
-        self.status_frame.pack(pady=(5,0))
+        
         self.target   = self.setting[self.choose_tool.get()]
         self.ensure_work_dir()
 
+    def check_work_dir(self):
+        if self.work_dir and os.path.exists(self.work_dir):
+            return True
+        return False
+
     def ensure_work_dir(self):
         self.work_dir = self.choose_work_dir.get()
-        while not self.work_dir or not os.path.exists(self.work_dir):
+        if not self.check_work_dir():
             self.user_choose_work_dir()
             self.work_dir = self.choose_work_dir.get()
 
-        daemon_thread = threading.Thread(target=self.check_for_update, daemon=True)
-        daemon_thread.start()
+        if self.check_work_dir():
+            daemon_thread = threading.Thread(target=self.check_for_update, daemon=True)
+            daemon_thread.start()
 
     def on_closing(self):
         for process in self.processes:
@@ -200,6 +206,7 @@ class AutoUpdateGUI():
             outfile.write(json_object)
 
     def check_for_update(self):
+        self.status_frame.pack(pady=(5,0))
         self.start_button["state"] = "disabled"
         self.get_newest_version()
         self.get_current_version()
@@ -237,6 +244,7 @@ class AutoUpdateGUI():
             self.extract_info += [(url, extract_path, overwrite)]
 
     def download_file(self):
+        result = True
         for url, extract_dir, en_overwrite in self.extract_info:
             print(url, extract_dir, en_overwrite)
             
@@ -246,8 +254,9 @@ class AutoUpdateGUI():
             # 有版本更新且此項目 en_overwrite is True
             case1 = (self.update_required and en_overwrite)
             # extract_dir 下找不到該項目且 en_overwrite is False
-            case2 = (not en_overwrite and not os.path.exists(f"{extract_dir}/{zip_file_name}"))
+            case2 = (not en_overwrite and not os.path.exists(f"{extract_dir}/{dir_name}"))
             if case1 or case2:
+                print(f"下載 {zip_file_name}...")
                 self.status_label.config(text=f"下載 {zip_file_name}...")
                 with requests.get(url, stream=True) as r:
                     try:
