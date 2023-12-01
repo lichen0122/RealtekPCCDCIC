@@ -127,16 +127,17 @@ class AutoUpdateGUI():
         if path:
             self.add_work_dir_list(path)
 
+    def start_update(self):
+        self.status_frame.pack(pady=(5,0))
+        self.target   = self.setting[self.choose_tool.get()]
+        self.ensure_work_dir()
+
     def ensure_work_dir(self):
         self.work_dir = self.choose_work_dir.get()
         while not self.work_dir or not os.path.exists(self.work_dir):
             self.user_choose_work_dir()
             self.work_dir = self.choose_work_dir.get()
 
-    def start_update(self):
-        self.status_frame.pack(pady=(5,0))
-        self.target   = self.setting[self.choose_tool.get()]
-        self.ensure_work_dir()
         daemon_thread = threading.Thread(target=self.check_for_update, daemon=True)
         daemon_thread.start()
 
@@ -165,7 +166,7 @@ class AutoUpdateGUI():
     def add_work_dir_list(self, new_dir):
         self.work_dir_list = [new_dir] + self.work_dir_list
         self.work_dir_list = self.remove_duplicates(self.work_dir_list)
-        with open('resource/work_dir_list.json', 'w') as f:
+        with open(self.work_dir_list_file, 'w') as f:
             json.dump(self.work_dir_list, f)
 
         self.choose_work_dir.config(values=self.work_dir_list)
@@ -205,10 +206,12 @@ class AutoUpdateGUI():
         self.get_extract_info()
 
         if 'version' in self.current_version_info and 'version' in self.newest_version_info and self.current_version_info['version'] == self.newest_version_info['version']:
-            self.start()
+            self.update_required = False
         else:
-            self.status_label.config(text="下載更新")
-            threading.Thread(target=self.download_file).start()
+            self.update_required = True
+
+        self.status_label.config(text="下載更新")
+        threading.Thread(target=self.download_file).start()
 
     def update_progress(self, downloaded, total_length):
         percent = (downloaded / total_length) * 100
@@ -236,29 +239,33 @@ class AutoUpdateGUI():
     def download_file(self):
         for url, extract_dir, en_overwrite in self.extract_info:
             print(url, extract_dir, en_overwrite)
-            self.status_label.config(text="下載更新")
+            
             zip_file_name = self.get_zip_file_name(url)
+            dir_name      = zip_file_name.replace('.zip', '')
 
-            if en_overwrite and os.path.exists(f"{extract_dir}/{zip_file_name}"):
-                continue
+            # 有版本更新且此項目 en_overwrite is True
+            case1 = (self.update_required and en_overwrite)
+            # extract_dir 下找不到該項目且 en_overwrite is False
+            case2 = (not en_overwrite and not os.path.exists(f"{extract_dir}/{zip_file_name}"))
+            if case1 or case2:
+                self.status_label.config(text=f"下載 {zip_file_name}...")
+                with requests.get(url, stream=True) as r:
+                    try:
+                        total_length = int(r.headers.get('content-length'))
+                    except:
+                        total_length = 36408565
+                    downloaded = 0
 
-            with requests.get(url, stream=True) as r:
-                try:
-                    total_length = int(r.headers.get('content-length'))
-                except:
-                    total_length = 36408565
-                downloaded = 0
-
-                with open(zip_file_name, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192): 
-                        if chunk:
-                            downloaded += len(chunk)
-                            f.write(chunk)
-                            self.update_progress(downloaded, total_length)
+                    with open(zip_file_name, 'wb') as f:
+                        for chunk in r.iter_content(chunk_size=8192): 
+                            if chunk:
+                                downloaded += len(chunk)
+                                f.write(chunk)
+                                self.update_progress(downloaded, total_length)
 
 
-            self.status_label.config(text="安裝中")
-            result = self.extract_zip(zip_file_name, extract_dir)
+                self.status_label.config(text=f"安裝 {zip_file_name}...")
+                result = self.extract_zip(zip_file_name, extract_dir)
 
         if result:
             self.status_label.config(text="安裝完成")
