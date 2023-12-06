@@ -1,5 +1,6 @@
 {
-	"AutoUpload":       "https://lichen0225.pythonanywhere.com/get_auto_upload_version",
-	"TconAutoGen":      "https://lichen0225.pythonanywhere.com/get_tcon_auto_gen_version",
-	"AudioDataPath":    "https://lichen0225.pythonanywhere.com/get_audio_data_path_version"
+	"AutoUpload":         "https://lichen0225.pythonanywhere.com/get_auto_upload_version",
+	"TconAutoGen":        "https://lichen0225.pythonanywhere.com/get_tcon_auto_gen_version",
+	"AudioDataPath":      "https://lichen0225.pythonanywhere.com/get_audio_data_path_version",
+	"AudioDataPathCheck": "https://lichen0225.pythonanywhere.com/get_audio_data_path_check_version"
 }
