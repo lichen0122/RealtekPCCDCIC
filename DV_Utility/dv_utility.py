@@ -289,8 +289,12 @@ class AutoUpdateGUI():
 
         self.start_button["state"] = "nogrmal"
         self.cmd = f'start {self.exe_name} {self.work_dir}'
-        print(self.cmd)
-        self.processes.append(subprocess.Popen(self.cmd, cwd=self.target_directory, shell=True))
+        self.target_directory = self.target_directory.replace('\\', '/')
+        print(self.cmd, self.target_directory)
+        if self.target_directory.split('/')[-1] in ['Visio_Debug', 'Upload_to_NX']:
+            self.processes.append(subprocess.Popen(self.cmd, cwd=self.target_directory+'/app', shell=True))
+        else:
+            self.processes.append(subprocess.Popen(self.cmd, cwd=self.target_directory, shell=True))
 
     def extract_zip(self, zip_file_name, extract_dir):
         result = True
