@@ -2,5 +2,7 @@
 	"AutoUpload":         "https://lichen0225.pythonanywhere.com/get_auto_upload_version",
 	"TconAutoGen":        "https://lichen0225.pythonanywhere.com/get_tcon_auto_gen_version",
 	"AudioDataPath":      "https://lichen0225.pythonanywhere.com/get_audio_data_path_version",
-	"AudioDataPathCheck": "https://lichen0225.pythonanywhere.com/get_audio_data_path_check_version"
+	"AudioDataPathCheck": "https://lichen0225.pythonanywhere.com/get_audio_data_path_check_version",
+	"Visio_Debug":        "https://storage.googleapis.com/realtek-pccdcic-dv/CY/VisioDebug.json",
+	"Upload_to_NX":       "https://storage.googleapis.com/realtek-pccdcic-dv/CY/Upload2NX.json"
 }
