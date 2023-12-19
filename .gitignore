@@ -1,0 +1,7 @@
+*
+!*.py
+!*requirements.txt
+!*.bat
+!*.gitignore
+!*.json
+!*.ico
