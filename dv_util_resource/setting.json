@@ -3,6 +3,6 @@
 	"TconAutoGen":        "https://lichen0225.pythonanywhere.com/get_tcon_auto_gen_version",
 	"AudioDataPath":      "https://lichen0225.pythonanywhere.com/get_audio_data_path_version",
 	"AudioDataPathCheck": "https://lichen0225.pythonanywhere.com/get_audio_data_path_check_version",
-	"Visio_Debug":        "https://raw.githubusercontent.com/lichen0122/RealtekPCCDCIC/main/tools/VisioDebug.json",
-	"Upload_to_NX":       "https://raw.githubusercontent.com/lichen0122/RealtekPCCDCIC/main/tools/Upload2NX.json"
+	"VisioDebug":         "https://raw.githubusercontent.com/lichen0122/RealtekPCCDCIC/main/tools/VisioDebug.json",
+	"FileExchangeNX":     "https://raw.githubusercontent.com/lichen0122/RealtekPCCDCIC/main/tools/Upload2NX.json"
 }
