@@ -44,7 +44,8 @@
         "man power gantt",
         "new_regression",
         "register control by port_name",
-        "DV Utilities"
+        "DV Utilities",
+        "analog wrapper auto-gen"
     ],
     "MVP2.0": [
         "con2d",
