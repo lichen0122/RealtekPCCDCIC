@@ -45,6 +45,7 @@
         "new_regression",
         "register control by port_name",
         "DV Utilities",
+        "analog wrapper auto-gen",
         "Visio Debug",
         "Upload To NX"
     ],
