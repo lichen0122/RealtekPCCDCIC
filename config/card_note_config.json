@@ -16,6 +16,13 @@
         "CTC",
         "UVM_ENV"
     ],
+    "RL6655": [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
+    ],
     "RLE1199": [
         "FPGA",
         "AudioDataPath",
@@ -135,8 +142,8 @@
     ],
     "ANE20" : [
         "UVM_ENV",
-		"Algorithm Implmentation",
-		"Regreesion Implmentation",
+        "Algorithm Implmentation",
+        "Regreesion Implmentation",
         "Verification",
         "Study",
         "con2d",
