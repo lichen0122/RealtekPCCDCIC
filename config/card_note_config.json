@@ -54,7 +54,8 @@
         "DV Utilities",
         "analog wrapper auto-gen",
         "Visio Debug",
-        "Upload To NX"
+        "Upload To NX",
+        "Bus Generator"
     ],
     "MVP2.0": [
         "con2d",
