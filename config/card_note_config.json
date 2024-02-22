@@ -55,10 +55,10 @@
         "analog wrapper auto-gen",
         "Visio Debug",
         "Upload To NX",
-        "spec reader",
         "Bus Generator",
         "Logic Check",
-        "Combination Circuit Automation"
+        "Combination Circuit Automation",
+        "spec reader"
     ],
     "MVP2.0": [
         "con2d",
