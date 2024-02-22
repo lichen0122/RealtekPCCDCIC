@@ -16,13 +16,6 @@
         "CTC",
         "UVM_ENV"
     ],
-    "RL6655": [
-        "FPGA",
-        "AudioDataPath",
-        "ClockGating",
-        "CTC",
-        "UVM_ENV"
-    ],
     "RLE1199": [
         "FPGA",
         "AudioDataPath",
@@ -173,6 +166,13 @@
         "FPGA",
         "AudioDataPath",
         "AudioDataPhase",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
+    ],
+    "ALC1018_RL6655": [
+        "FPGA",
+        "AudioDataPath",
         "ClockGating",
         "CTC",
         "UVM_ENV"
