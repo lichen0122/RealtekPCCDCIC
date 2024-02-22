@@ -55,7 +55,9 @@
         "analog wrapper auto-gen",
         "Visio Debug",
         "Upload To NX",
-        "Bus Generator"
+        "Bus Generator",
+        "Logic Check",
+        "Combination Circuit Automation"
     ],
     "MVP2.0": [
         "con2d",
