@@ -173,6 +173,7 @@
     "ALC1018_RL6655": [
         "FPGA",
         "AudioDataPath",
+        "AudioDataPhase",
         "ClockGating",
         "CTC",
         "UVM_ENV"
