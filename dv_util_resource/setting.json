@@ -5,5 +5,6 @@
 	"AudioDataPath":      "https://lichen0225.pythonanywhere.com/get_audio_data_path_version",
 	"AudioDataPhase":     "https://storage.googleapis.com/cyvisionbot_test_2/Audio_Data_Phase/version_ctrl/version_RTK.json",
 	"VisioDebug":         "https://storage.googleapis.com/cyvisionbot_test_2/visio_debug/version_ctrl/version_RTK.json",
-	"CardNote":           "https://lichen0225.pythonanywhere.com/get_card_note_version"
+	"CardNote":           "https://lichen0225.pythonanywhere.com/get_card_note_version",
+	"Spec_Reader":        "https://storage.googleapis.com/cyvisionbot_test_2/Spec_Reader/version_ctrl/version_RTK.json"
 }
