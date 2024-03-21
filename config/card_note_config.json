@@ -176,5 +176,12 @@
         "ClockGating",
         "CTC",
         "UVM_ENV"
+    ],
+    "ALC5658SLIM_RL7012": [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
     ]
 }
