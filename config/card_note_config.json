@@ -191,5 +191,12 @@
         "ClockGating",
         "CTC",
         "UVM_ENV"
+    ],
+    "ALC721_RL7001": [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
     ]
 }
