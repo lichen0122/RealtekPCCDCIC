@@ -135,7 +135,10 @@
     "ISP" : [
         "UVM_ENV",
         "Verification",
-        "Survey"
+        "Survey",
+        "IPU",
+        "DebugTop",
+        "Implmentation"
     ],
     "ANE20" : [
         "UVM_ENV",
@@ -193,6 +196,13 @@
         "UVM_ENV"
     ],
     "ALC721_RL7001": [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
+    ],
+    "ALC5526_RL6929": [
         "FPGA",
         "AudioDataPath",
         "ClockGating",
