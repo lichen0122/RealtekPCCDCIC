@@ -34,7 +34,11 @@
         "PCIE",
         "SPI",
         "I2S",
-        "DMIC"
+        "DMIC",
+		"AHB",
+		"APB",
+		"RA",
+		"DebounceCheck"
     ],
     "Tools": [
         "卡片盒筆記",
