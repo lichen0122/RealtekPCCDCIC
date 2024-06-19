@@ -17,7 +17,6 @@ class AutoUpdateGUI():
     url            = ''
     processes      = []
     
-
     def __init__(self):
 
         self.ensure_resource_files()
@@ -33,6 +32,7 @@ class AutoUpdateGUI():
         self.setting_file       = f"{self.resource}/setting.json"
         self.ico_file           = f'{self.resource}/realtek.ico'
         self.work_dir_list_file = f'{self.resource}/work_dir_list.json'
+        self.tool_history_file  = f'{self.resource}/tool_history.json'
 
 
         if not os.path.exists(self.resource):
@@ -50,6 +50,10 @@ class AutoUpdateGUI():
             with open(self.work_dir_list_file, 'w') as f:
                 json.dump([], f)
 
+        if not os.path.exists(self.tool_history_file):
+            with open(self.tool_history_file, 'w') as f:
+                json.dump("", f)
+
 
     def get_install_dir(self):
         from pathlib import Path
@@ -62,7 +66,7 @@ class AutoUpdateGUI():
         self.root = tk.Tk()
         self.root.title('PCCDCIC DV Utility')
         self.root_width  = 800
-        self.root_height = 150
+        self.root_height = 200
         self.root.configure(bg="white")
         self.root.geometry("%dx%d" % (self.root_width, self.root_height))
         self.root.resizable(False, False)
@@ -95,20 +99,34 @@ class AutoUpdateGUI():
         self.tool_label.grid(row=0, column=0, padx=(0, 5))
         self.tool_option_list = list(self.setting.keys())
         self.choose_tool      = ttk.Combobox(self.tool_frame, values=self.tool_option_list, width=80, state="readonly")
+        self.get_tool_history()
         self.choose_tool.current(0)
+        if self.tool_history:
+            if self.tool_history in self.tool_option_list:
+                index = self.tool_option_list.index(self.tool_history)
+                self.choose_tool.current(index)
+
         self.choose_tool.grid(row=0, column=1)
         self.start_button    = ttk.Button(self.tool_frame, text="開啟", command=self.start_update, width=16)
         self.start_button.grid(row=0, column=2, padx=(5, 0))
 
+
         ## ------------------------------------ status frame ------------------------------------ ##
         self.status_frame = ttk.Frame(self.root)
-        self.progress = ttk.Progressbar(self.status_frame, orient='horizontal', length=255, mode='determinate')
+        self.progress = ttk.Progressbar(self.status_frame, orient='horizontal', length=325, mode='determinate')
         self.progress.grid(row=0, column=0)
         self.progress_label = ttk.Label(self.status_frame, text="0%", font=("微軟正黑體", 9))
         self.progress_label.grid(row=1, column=0)
 
         self.status_label = ttk.Label(self.status_frame, font=('微軟正黑體', 15), text="")
-        self.status_label.grid(row=2, column=0)
+        self.status_label.grid(row=3, column=0)
+
+        ## ------------------------------------ release_note frame ------------------------------------ ##
+        self.release_note_frame = ttk.Frame(self.root)
+        self.release_note_label = ttk.Label(self.release_note_frame, font=('微軟正黑體', 10), text="")
+        self.release_note_label.grid(row=0, column=0)
+        
+
 
     def download_from_git(self, url, output):
         with requests.get(url, stream=True) as r:
@@ -128,8 +146,11 @@ class AutoUpdateGUI():
             self.add_work_dir_list(path)
 
     def start_update(self):
-        
-        self.target   = self.setting[self.choose_tool.get()]
+        self.tool_history = self.choose_tool.get()
+        with open(self.tool_history_file, 'w') as f:
+            json.dump(self.tool_history, f)
+
+        self.target       = self.setting[self.choose_tool.get()]
         self.ensure_work_dir()
 
     def check_work_dir(self):
@@ -159,6 +180,13 @@ class AutoUpdateGUI():
                 self.work_dir_list = json.load(f)
         else:
             self.work_dir_list = []
+
+    def get_tool_history(self):
+        if os.path.exists(self.tool_history_file):
+            with open(self.tool_history_file, 'r') as f:
+                self.tool_history = json.load(f)
+        else:
+            self.tool_history = ""
 
     def remove_duplicates(self, input_list):
         seen = set()
@@ -190,6 +218,7 @@ class AutoUpdateGUI():
         self.update_info          = self.newest_version_info['update_info']
         self.current_version      = self.target_directory + "/" + self.newest_version_info["current_version"]
         self.exe_name             = self.newest_version_info["exe_name"]
+        self.release_note         = self.newest_version_info["release_note"] if "release_note" in self.newest_version_info else ""
 
     def get_current_version(self):
         version_info = {}
@@ -207,6 +236,7 @@ class AutoUpdateGUI():
 
     def check_for_update(self):
         self.status_frame.pack(pady=(5,0))
+        self.release_note_frame.pack(pady=(5,0))
         self.start_button["state"] = "disabled"
         self.get_newest_version()
         self.get_current_version()
@@ -217,6 +247,7 @@ class AutoUpdateGUI():
         else:
             self.update_required = True
 
+        
         self.status_label.config(text="下載更新")
         threading.Thread(target=self.download_file).start()
 
@@ -284,11 +315,13 @@ class AutoUpdateGUI():
             self.status_label.config(text="安裝異常, 請將資料夾全部刪除並重新下載")
 
     def start(self):
+        self.release_note_label.config(text=f"當前版本 {self.newest_version_info['version']} : {self.release_note}")
+
         self.status_label.config(text=f"更新完成, 程式已自動開啟")
         self.update_progress(1, 1)
 
         self.start_button["state"] = "nogrmal"
-        self.cmd = f'start {self.exe_name} {self.work_dir}'
+        self.cmd = f'start {self.exe_name} "{self.work_dir}"'
         self.target_directory = self.target_directory.replace('\\', '/')
         print(self.cmd, self.target_directory)
         self.processes.append(subprocess.Popen(self.cmd, cwd=self.target_directory, shell=True))
