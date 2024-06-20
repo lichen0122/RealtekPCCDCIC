@@ -66,7 +66,7 @@ class AutoUpdateGUI():
         self.root = tk.Tk()
         self.root.title('PCCDCIC DV Utility')
         self.root_width  = 800
-        self.root_height = 200
+        self.root_height = 150
         self.root.configure(bg="white")
         self.root.geometry("%dx%d" % (self.root_width, self.root_height))
         self.root.resizable(False, False)
@@ -115,18 +115,26 @@ class AutoUpdateGUI():
         self.status_frame = ttk.Frame(self.root)
         self.progress = ttk.Progressbar(self.status_frame, orient='horizontal', length=325, mode='determinate')
         self.progress.grid(row=0, column=0)
-        self.progress_label = ttk.Label(self.status_frame, text="0%", font=("微軟正黑體", 9))
-        self.progress_label.grid(row=1, column=0)
+        # self.progress_label = ttk.Label(self.status_frame, text="0%", font=("微軟正黑體", 9))
+        # self.progress_label.grid(row=1, column=0)
+        # self.progress_label.place(x=0, y=0, anchor="center")
 
         self.status_label = ttk.Label(self.status_frame, font=('微軟正黑體', 15), text="")
         self.status_label.grid(row=3, column=0)
 
         ## ------------------------------------ release_note frame ------------------------------------ ##
         self.release_note_frame = ttk.Frame(self.root)
+        self.version_label      = ttk.Label(self.release_note_frame, font=('微軟正黑體', 10), text="")
         self.release_note_label = ttk.Label(self.release_note_frame, font=('微軟正黑體', 10), text="")
-        self.release_note_label.grid(row=0, column=0)
+        self.version_label.grid(row=0, column=0)
+        self.release_note_label.grid(row=1, column=0)
         
 
+        ## ---------------------------------- hotkey maintain
+        self.root.bind('<Control-m>', self.on_ctrl_m)
+
+    def on_ctrl_m(self, event=None):
+        os.system(f'explorer {self.get_install_dir()}')
 
     def download_from_git(self, url, output):
         with requests.get(url, stream=True) as r:
@@ -146,6 +154,9 @@ class AutoUpdateGUI():
             self.add_work_dir_list(path)
 
     def start_update(self):
+        self.release_note_label.config(text="")
+        self.version_label.config(text="")
+
         self.tool_history = self.choose_tool.get()
         with open(self.tool_history_file, 'w') as f:
             json.dump(self.tool_history, f)
@@ -234,6 +245,8 @@ class AutoUpdateGUI():
         with open(self.current_version, "w") as outfile:
             outfile.write(json_object)
 
+
+
     def check_for_update(self):
         self.status_frame.pack(pady=(5,0))
         self.release_note_frame.pack(pady=(5,0))
@@ -254,7 +267,7 @@ class AutoUpdateGUI():
     def update_progress(self, downloaded, total_length):
         percent = (downloaded / total_length) * 100
         self.progress['value'] = percent
-        self.progress_label.config(text=f"{percent:.2f}%")
+        # self.progress_label.config(text=f"{percent:.2f}%")
         self.root.update_idletasks()
 
     def get_zip_file_name(self, url):
@@ -287,8 +300,10 @@ class AutoUpdateGUI():
             # extract_dir 下找不到該項目且 en_overwrite is False
             case2 = (not en_overwrite and not os.path.exists(f"{extract_dir}/{dir_name}"))
             if case1 or case2:
-                print(f"下載 {zip_file_name}...")
-                self.status_label.config(text=f"下載 {zip_file_name}...")
+                # print(f"下載 {zip_file_name}...")
+                print(f"下載中 ...")
+                # self.status_label.config(text=f"下載 {zip_file_name}...")
+                self.status_label.config(text=f"下載中 ...")
                 with requests.get(url, stream=True) as r:
                     try:
                         total_length = int(r.headers.get('content-length'))
@@ -304,7 +319,8 @@ class AutoUpdateGUI():
                                 self.update_progress(downloaded, total_length)
 
 
-                self.status_label.config(text=f"安裝 {zip_file_name}...")
+                # self.status_label.config(text=f"安裝 {zip_file_name}...")
+                self.status_label.config(text=f"安裝中 ...")
                 result = self.extract_zip(zip_file_name, extract_dir)
 
         if result:
@@ -315,10 +331,12 @@ class AutoUpdateGUI():
             self.status_label.config(text="安裝異常, 請將資料夾全部刪除並重新下載")
 
     def start(self):
-        self.release_note_label.config(text=f"當前版本 {self.newest_version_info['version']} : {self.release_note}")
+        self.release_note_label.config(text=f"{self.release_note}")
+        self.version_label.config(text=f"當前版本 {self.newest_version_info['version']}")
 
         self.status_label.config(text=f"更新完成, 程式已自動開啟")
         self.update_progress(1, 1)
+        self.status_frame.pack_forget()
 
         self.start_button["state"] = "nogrmal"
         self.cmd = f'start {self.exe_name} "{self.work_dir}"'
