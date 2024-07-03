@@ -1,4 +1,4 @@
-pyinstaller -F --noconsole --icon=realtek.ico dv_utility.py
+pyinstaller -F --noconsole --add-data "c:\users\lichen.liu\anaconda3\envs\dv_utility\lib\site-packages/customtkinter;customtkinter/" dv_utility.py
 
 copy dist\dv_utility.exe DV_Utility.exe
 

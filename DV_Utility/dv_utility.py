@@ -1,6 +1,7 @@
 import tkinter as tk
-from tkinter import filedialog
 from tkinter import ttk
+from tkinter import filedialog
+import customtkinter as ctk
 import threading
 import requests
 import json
@@ -12,10 +13,14 @@ from pathlib import Path
 import os
 import pickle
 
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
+ctk.ThemeManager.theme['CTkFrame']['fg_color'] = ctk.ThemeManager.theme['CTk']['fg_color']
 
 class AutoUpdateGUI():
     url            = ''
     processes      = []
+    version        = 'v20240703'
     
     def __init__(self):
 
@@ -38,9 +43,8 @@ class AutoUpdateGUI():
         if not os.path.exists(self.resource):
             os.mkdir(f'{self.resource}')
 
-        if not os.path.exists(self.setting_file):
-            url = 'https://raw.github.com/lichen0122/RealtekPCCDCIC/main/dv_util_resource/setting.json'
-            self.download_from_git(url, self.setting_file)
+        url = 'https://raw.github.com/lichen0122/RealtekPCCDCIC/main/dv_util_resource/setting.json'
+        self.download_from_git(url, self.setting_file)
 
         if not os.path.exists(self.ico_file):
             url = 'https://raw.github.com/lichen0122/RealtekPCCDCIC/main/dv_util_resource/realtek.ico'
@@ -63,42 +67,39 @@ class AutoUpdateGUI():
 
 
     def init_window(self):
-        self.root = tk.Tk()
-        self.root.title('PCCDCIC DV Utility')
+        self.root = ctk.CTk()
+        self.root.title(f'PCDV DV Utility {self.version}')
         self.root_width  = 800
-        self.root_height = 150
+        self.root_height = 220
         self.root.configure(bg="white")
         self.root.geometry("%dx%d" % (self.root_width, self.root_height))
         self.root.resizable(False, False)
-        self.root.iconbitmap(self.ico_file)
+        # self.root.iconbitmap(self.ico_file)
         # self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        default_font = ctk.CTkFont(family="Microsoft JhengHei", size=14)
 
-        style = ttk.Style()
-        style.configure('TLabel',  background = 'white', foreground = 'black')
-        style.configure('TFrame',  background = 'white', foreground = 'black')
-        style.configure('TButton', background = 'white', foreground = 'black')
-        style.configure('TProgressbar', background = 'white', foreground = 'black')
+        
 
         ## ------------------------------------ path frame ------------------------------------ ##
-        self.path_frame = ttk.Frame(self.root)
-        self.path_frame.pack(pady=(5,5))
-        self.path_label = ttk.Label(self.path_frame, text="請選擇路徑:", font=("微軟正黑體", 9))
-        self.path_label.grid(row=1, column=0, padx=(0, 5))
+        self.top_frame = ctk.CTkFrame(self.root)
+        self.top_frame.pack(pady=(5,5))
+        self.path_label = ctk.CTkLabel(self.top_frame, text="請選擇 project 路徑:", font=default_font)
+        self.path_label.grid(row=0, column=0, padx=(0, 5), pady=(0, 2), sticky='w')
         self.get_work_dir_list()
-        self.choose_work_dir = ttk.Combobox(self.path_frame, values=self.work_dir_list, width=80, state="readonly")
+        self.choose_work_dir = ttk.Combobox(self.top_frame, values=self.work_dir_list, width=80, state="readonly")
         if self.work_dir_list:
             self.choose_work_dir.current(0)
-        self.choose_work_dir.grid(row=1, column=1)
-        self.choose_dir_button    = ttk.Button(self.path_frame, text="選擇 project 路徑", command=self.user_choose_work_dir, width=16)
-        self.choose_dir_button.grid(row=1, column=2, padx=(5, 0))
 
-        ## ------------------------------------ tool frame ------------------------------------ ##
-        self.tool_frame = ttk.Frame(self.root)
-        self.tool_frame.pack(pady=(5,5))
-        self.tool_label = ttk.Label(self.tool_frame, text="請選擇工具:", font=("微軟正黑體", 9))
-        self.tool_label.grid(row=0, column=0, padx=(0, 5))
+        self.choose_work_dir.bind("<<ComboboxSelected>>", self.choose_work_dir_on_select)
+
+        self.choose_work_dir.grid(row=0, column=1, sticky='w')
+        self.choose_dir_button    = ctk.CTkButton(self.top_frame, text="選擇路徑", command=self.user_choose_work_dir, width=16, font=default_font)
+        self.choose_dir_button.grid(row=0, column=2, padx=(5, 0), pady=(0, 2))
+
+        self.tool_label = ctk.CTkLabel(self.top_frame, text="請選擇 utility 工具:", font=default_font)
+        self.tool_label.grid(row=1, column=0, padx=(0, 5), pady=(0, 2), sticky='w')
         self.tool_option_list = list(self.setting.keys())
-        self.choose_tool      = ttk.Combobox(self.tool_frame, values=self.tool_option_list, width=80, state="readonly")
+        self.choose_tool      = ttk.Combobox(self.top_frame, values=self.tool_option_list, width=80, state="readonly")
         self.get_tool_history()
         self.choose_tool.current(0)
         if self.tool_history:
@@ -106,26 +107,26 @@ class AutoUpdateGUI():
                 index = self.tool_option_list.index(self.tool_history)
                 self.choose_tool.current(index)
 
-        self.choose_tool.grid(row=0, column=1)
-        self.start_button    = ttk.Button(self.tool_frame, text="開啟", command=self.start_update, width=16)
-        self.start_button.grid(row=0, column=2, padx=(5, 0))
+        self.choose_tool.grid(row=1, column=1)
+        self.start_button    = ctk.CTkButton(self.top_frame, text="開啟程式", command=self.start_update, width=16, font=default_font)
+        self.start_button.grid(row=1, column=2, padx=(5, 0), pady=(0, 2))
 
 
         ## ------------------------------------ status frame ------------------------------------ ##
-        self.status_frame = ttk.Frame(self.root)
+        self.status_frame = ctk.CTkFrame(self.root)
         self.progress = ttk.Progressbar(self.status_frame, orient='horizontal', length=325, mode='determinate')
         self.progress.grid(row=0, column=0)
-        # self.progress_label = ttk.Label(self.status_frame, text="0%", font=("微軟正黑體", 9))
+        # self.progress_label = ctk.CTkLabel(self.status_frame, text="0%", font=("微軟正黑體", 9))
         # self.progress_label.grid(row=1, column=0)
         # self.progress_label.place(x=0, y=0, anchor="center")
 
-        self.status_label = ttk.Label(self.status_frame, font=('微軟正黑體', 15), text="")
+        self.status_label = ctk.CTkLabel(self.status_frame, font=default_font, text="")
         self.status_label.grid(row=3, column=0)
 
         ## ------------------------------------ release_note frame ------------------------------------ ##
-        self.release_note_frame = ttk.Frame(self.root)
-        self.version_label      = ttk.Label(self.release_note_frame, font=('微軟正黑體', 10), text="")
-        self.release_note_label = ttk.Label(self.release_note_frame, font=('微軟正黑體', 10), text="")
+        self.release_note_frame = ctk.CTkFrame(self.root)
+        self.version_label      = ctk.CTkLabel(self.release_note_frame, font=default_font, text="")
+        self.release_note_label = ctk.CTkLabel(self.release_note_frame, font=default_font, text="")
         self.version_label.grid(row=0, column=0)
         self.release_note_label.grid(row=1, column=0)
         
@@ -154,8 +155,8 @@ class AutoUpdateGUI():
             self.add_work_dir_list(path)
 
     def start_update(self):
-        self.release_note_label.config(text="")
-        self.version_label.config(text="")
+        self.release_note_label.configure(text="")
+        self.version_label.configure(text="")
 
         self.tool_history = self.choose_tool.get()
         with open(self.tool_history_file, 'w') as f:
@@ -208,13 +209,17 @@ class AutoUpdateGUI():
                 result.append(item)
         return result
 
+    def choose_work_dir_on_select(self, event):
+        selected_value = self.choose_work_dir.get()
+        self.add_work_dir_list(selected_value)
+
     def add_work_dir_list(self, new_dir):
         self.work_dir_list = [new_dir] + self.work_dir_list
         self.work_dir_list = self.remove_duplicates(self.work_dir_list)
         with open(self.work_dir_list_file, 'w') as f:
             json.dump(self.work_dir_list, f)
 
-        self.choose_work_dir.config(values=self.work_dir_list)
+        self.choose_work_dir.configure(values=self.work_dir_list)
         if self.work_dir_list:
             self.choose_work_dir.current(0)
 
@@ -261,13 +266,13 @@ class AutoUpdateGUI():
             self.update_required = True
 
         
-        self.status_label.config(text="下載更新")
+        self.status_label.configure(text="下載更新")
         threading.Thread(target=self.download_file).start()
 
     def update_progress(self, downloaded, total_length):
         percent = (downloaded / total_length) * 100
         self.progress['value'] = percent
-        # self.progress_label.config(text=f"{percent:.2f}%")
+        # self.progress_label.configure(text=f"{percent:.2f}%")
         self.root.update_idletasks()
 
     def get_zip_file_name(self, url):
@@ -302,8 +307,8 @@ class AutoUpdateGUI():
             if case1 or case2:
                 # print(f"下載 {zip_file_name}...")
                 print(f"下載中 ...")
-                # self.status_label.config(text=f"下載 {zip_file_name}...")
-                self.status_label.config(text=f"下載中 ...")
+                # self.status_label.configure(text=f"下載 {zip_file_name}...")
+                self.status_label.configure(text=f"下載中 ...")
                 with requests.get(url, stream=True) as r:
                     try:
                         total_length = int(r.headers.get('content-length'))
@@ -319,22 +324,22 @@ class AutoUpdateGUI():
                                 self.update_progress(downloaded, total_length)
 
 
-                # self.status_label.config(text=f"安裝 {zip_file_name}...")
-                self.status_label.config(text=f"安裝中 ...")
+                # self.status_label.configure(text=f"安裝 {zip_file_name}...")
+                self.status_label.configure(text=f"安裝中 ...")
                 result = self.extract_zip(zip_file_name, extract_dir)
 
         if result:
-            self.status_label.config(text="安裝完成")
+            self.status_label.configure(text="安裝完成")
             self.set_current_version({'version': self.newest_version_info['version']})
             self.start()
         else:
-            self.status_label.config(text="安裝異常, 請將資料夾全部刪除並重新下載")
+            self.status_label.configure(text="安裝異常, 請將資料夾全部刪除並重新下載")
 
     def start(self):
-        self.release_note_label.config(text=f"{self.release_note}")
-        self.version_label.config(text=f"當前版本 {self.newest_version_info['version']}")
+        self.release_note_label.configure(text=f"{self.release_note}")
+        self.version_label.configure(text=f"當前版本 {self.newest_version_info['version']}")
 
-        self.status_label.config(text=f"更新完成, 程式已自動開啟")
+        self.status_label.configure(text=f"更新完成, 程式已自動開啟")
         self.update_progress(1, 1)
         self.status_frame.pack_forget()
 
