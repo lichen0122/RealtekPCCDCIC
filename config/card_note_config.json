@@ -219,5 +219,8 @@
         "ClockGating",
         "CTC",
         "UVM_ENV"
+    ],
+    "CN_Support": [
+        "Verification"
     ]
 }
