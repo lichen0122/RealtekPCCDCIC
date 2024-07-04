@@ -220,7 +220,7 @@
         "CTC",
         "UVM_ENV"
     ],
-    "CN_Support": [
-        "Verification"
+    "IP_Support": [
+        "CM_kent"
     ]
 }
