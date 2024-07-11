@@ -57,11 +57,9 @@
         "Logic Check",
         "Combination Circuit Automation"
     ],
-    "MVP2.0": [
-        "con2d",
-        "pointwise",
-        "depthwise",
-        "fully"
+    "MVP2.0 Plus": [
+        "npu",
+        "resize_top"
     ],
     "RLE1121": [
         "FPGA",
