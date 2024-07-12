@@ -204,7 +204,7 @@
         "CTC",
         "UVM_ENV"
     ],
-    "ALC5526_RL6929": [
+    "ALC5526_RL6929_SLIM": [
         "FPGA",
         "AudioDataPath",
         "ClockGating",
@@ -220,5 +220,19 @@
     ],
     "IP_Support": [
         "CM_kent"
+    ],
+    "ALC1801_RLE1338": [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
+    ],
+    "ALC722VB_RL7042": [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
     ]
 }
