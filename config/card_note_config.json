@@ -55,7 +55,8 @@
         "spec reader",
         "Bus Generator",
         "Logic Check",
-        "Combination Circuit Automation"
+        "Combination Circuit Automation",
+        "Register File Version Control"
     ],
     "MVP2.0 Plus": [
         "npu",
