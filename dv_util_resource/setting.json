@@ -1,10 +1,10 @@
 {
 	"FileExchangeToNX":   "https://storage.googleapis.com/cyvisionbot_test_2/Upload_to_NX/version_ctrl/version_RTK.json",
-	"TconAutoGen":        "https://lichen0225.pythonanywhere.com/get_tcon_auto_gen_version",
+	"TconAutoGen":        "https://storage.googleapis.com/realtek-pccdcic-dv/TconAutoGen/tcon_auto_gen_version.json",
 	"AudioDataPathCheck": "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPathCheck/audio_data_path_check_version.json",
 	"AudioDataPath":      "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPath/audio_data_path_version.json",
 	"AudioDataPhase":     "https://storage.googleapis.com/cyvisionbot_test_2/Audio_Data_Phase/version_ctrl/version_RTK.json",
 	"VisioDebug":         "https://storage.googleapis.com/cyvisionbot_test_2/visio_debug/version_ctrl/version_RTK.json",
-	"CardNote":           "https://lichen0225.pythonanywhere.com/get_card_note_version",
+	"CardNote":           "https://storage.googleapis.com/realtek-pccdcic-dv/CardNote/card_note_version.json",
 	"Spec_Reader":        "https://storage.googleapis.com/cyvisionbot_test_2/Spec_Reader/version_ctrl/version_RTK.json"
 }
