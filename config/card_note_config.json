@@ -38,7 +38,8 @@
 		"AHB",
 		"APB",
 		"RA",
-		"DebounceCheck"
+		"DebounceCheck",
+        "SPI_LITE"
     ],
     "Tools": [
         "卡片盒筆記",
