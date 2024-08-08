@@ -80,14 +80,6 @@
         "CTC",
         "UVM_ENV"
     ],
-    "ALC5526_RLE1267" : [
-        "FPGA",
-        "AudioDataPath",
-        "AudioDataPhase",
-        "ClockGating",
-        "CTC",
-        "UVM_ENV"
-    ],
     "ALC5682_RL6956" : [
         "FPGA",
         "AudioDataPath",
@@ -197,7 +189,7 @@
         "CTC",
         "UVM_ENV"
     ],
-    "ALC5526SLIM_RL6929": [
+    "ALC5526_RL7048": [
         "FPGA",
         "AudioDataPath",
         "ClockGating",
@@ -229,6 +221,13 @@
         "UVM_ENV"
     ],
     "ALC1320LV-R_RL7045": [
+        "FPGA",
+        "AudioDataPath",
+        "ClockGating",
+        "CTC",
+        "UVM_ENV"
+    ],
+    "ALC1600_RLE1379": [
         "FPGA",
         "AudioDataPath",
         "ClockGating",
