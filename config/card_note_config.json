@@ -57,7 +57,8 @@
         "Bus Generator",
         "Logic Check",
         "Combination Circuit Automation",
-        "Register File Version Control"
+        "Register File Version Control",
+        "Verilog Copilot"
     ],
     "MVP2.0 Plus": [
         "npu",
