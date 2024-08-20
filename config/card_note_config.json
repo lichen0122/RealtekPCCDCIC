@@ -63,7 +63,10 @@
     ],
     "MVP2.0 Plus": [
         "npu",
-        "resize_top"
+        "resize_top",
+        "pointwise",
+        "conv2d",
+        "depthwise"
     ],
     "RLE1121": [
         "FPGA",
