@@ -58,7 +58,7 @@
         "Bus Generator",
         "Logic Check",
         "Combination Circuit Automation",
-        "Register File Version Control",
+        "Register File Automation",
         "Verilog Copilot"
     ],
     "MVP2.0 Plus": [
@@ -238,6 +238,7 @@
         "AudioDataPath",
         "ClockGating",
         "CTC",
-        "UVM_ENV"
+        "UVM_ENV",
+        "Verification"
     ]
 }
