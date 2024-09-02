@@ -1,6 +1,7 @@
 {
     "UVM_GOLDEN": [
-        "UVM_ENV"
+        "UVM_ENV",
+        "Coverage"
     ],
     "RL6903": [
         "FPGA",
