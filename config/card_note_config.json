@@ -59,7 +59,8 @@
         "Logic Check",
         "Combination Circuit Automation",
         "Register File Automation",
-        "Verilog Copilot"
+        "Verilog Copilot",
+        "SVN Desktop"
     ],
     "MVP2.0 Plus": [
         "npu",
