@@ -35,10 +35,10 @@
         "SPI",
         "I2S",
         "DMIC",
-		"AHB",
-		"APB",
-		"RA",
-		"DebounceCheck",
+        "AHB",
+        "APB",
+        "RA",
+        "DebounceCheck",
         "SPI_LITE"
     ],
     "Tools": [
