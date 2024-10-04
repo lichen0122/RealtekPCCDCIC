@@ -236,7 +236,7 @@
         "CTC",
         "UVM_ENV"
     ],
-    "ALC1600_RLE1379": [
+    "ALC1600_RLE1328": [
         "FPGA",
         "AudioDataPath",
         "ClockGating",
