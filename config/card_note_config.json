@@ -69,7 +69,10 @@
         "resize_top",
         "pointwise",
         "conv2d",
-        "depthwise"
+        "depthwise",
+        "add",
+        "mul",
+        "maxpool"
     ],
     "RLE1121": [
         "FPGA",
