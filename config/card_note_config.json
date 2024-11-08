@@ -197,6 +197,7 @@
     "ALC721_RL7001": [
         "FPGA",
         "AudioDataPath",
+        "AudioDataPhase",
         "ClockGating",
         "CTC",
         "UVM_ENV"
