@@ -4,24 +4,24 @@
         "Coverage"
     ],
     "RL6903": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "RLE1226": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "RLE1199": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV",
         "I3C"
     ],
@@ -72,28 +72,28 @@
         "depthwise"
     ],
     "RLE1121": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "RTS5881": [
         "ISP DV"
     ],
     "ALC1800_RLE1245" : [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC5682_RL6956" : [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "AudioDataPhase",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "DV_Training" : [
@@ -104,27 +104,27 @@
         "OTHERS"
     ],
     "ALC3326_RLE1257" : [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "AudioDataPhase",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC1320LV_RL6981" : [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "AudioDataPhase",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC721_RL6976" : [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "AudioDataPhase",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ISP" : [
@@ -146,101 +146,101 @@
         "fully"
     ],
     "ALC1320HV_RLE1255": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "AudioDataPhase",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC712VB_RL6977": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "AudioDataPhase",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC5665VE_RL6992" : [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "AudioDataPhase",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC1018_RL6655": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "AudioDataPhase",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC5658SLIM_RL7012": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC721_RLE1272": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC721_RL7001": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC5526_RL7048": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC1800_RL6996": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "IP_Support": [
         "CM_kent"
     ],
     "ALC1801_RLE1338": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC722VB_RL7042": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC1320LV-R_RL7045": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV"
     ],
     "ALC1600_RLE1328": [
-        "FPGA",
+        "Register",
         "AudioDataPath",
         "ClockGating",
-        "CTC",
+        "Coverage",
         "UVM_ENV",
         "Verification"
     ]
