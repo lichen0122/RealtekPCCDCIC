@@ -69,7 +69,10 @@
         "resize_top",
         "pointwise",
         "conv2d",
-        "depthwise"
+        "depthwise",
+        "add",
+        "mul",
+        "maxpool"
     ],
     "RLE1121": [
         "Register",
@@ -194,6 +197,7 @@
     "ALC721_RL7001": [
         "Register",
         "AudioDataPath",
+        "AudioDataPhase",
         "ClockGating",
         "Coverage",
         "UVM_ENV"
