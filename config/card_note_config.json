@@ -248,6 +248,14 @@
         "UVM_ENV",
         "Verification"
     ],
+    "ALC1020_RLE1375": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
+    ],
     "ALC1340_RLE1368": [
         "Register",
         "AudioDataPath",
@@ -256,7 +264,31 @@
         "UVM_ENV",
         "Verification"
     ],
-    "ALC766_RL5525A": [
+    "ALC766LV_RL7055": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
+    ],
+    "ALC766HV_RL7056": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
+    ],
+    "ALC5525A_U153_RL7067": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
+    ],
+    "ALC5525A_T22_RLE1419": [
         "Register",
         "AudioDataPath",
         "ClockGating",
