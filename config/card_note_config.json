@@ -303,5 +303,12 @@
         "Coverage",
         "UVM_ENV",
         "Verification"
+    ],
+    "RTS3923": [
+        "dma",
+        "npu",
+        "memory",
+        "bus",
+        "axi"
     ]
 }
