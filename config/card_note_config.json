@@ -310,5 +310,12 @@
         "memory",
         "bus",
         "axi"
-    ]
+    ],
+    "ALC5525_RL6835": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
 }
