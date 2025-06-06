@@ -1,29 +1,9 @@
 {
     "UVM_GOLDEN": [
         "UVM_ENV",
+        "Rrgister",
+        "AudioDataPath",
         "Coverage"
-    ],
-    "RL6903": [
-        "Register",
-        "AudioDataPath",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "RLE1226": [
-        "Register",
-        "AudioDataPath",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "RLE1199": [
-        "Register",
-        "AudioDataPath",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV",
-        "I3C"
     ],
     "VIP": [
         "AudioDataPath",
@@ -64,40 +44,8 @@
         "GUI Tool Template",
         "SVN Desktop"
     ],
-    "MVP2.0 Plus": [
-        "npu",
-        "resize_top",
-        "pointwise",
-        "conv2d",
-        "depthwise",
-        "add",
-        "mul",
-        "maxpool"
-    ],
-    "RLE1121": [
-        "Register",
-        "AudioDataPath",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
     "RTS5881": [
         "ISP DV"
-    ],
-    "ALC1800_RLE1245" : [
-        "Register",
-        "AudioDataPath",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "ALC5682_RL6956" : [
-        "Register",
-        "AudioDataPath",
-        "AudioDataPhase",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
     ],
     "DV_Training" : [
         "SV",
@@ -106,110 +54,14 @@
         "PROJECT",
         "OTHERS"
     ],
-    "ALC3326_RLE1257" : [
-        "Register",
-        "AudioDataPath",
-        "AudioDataPhase",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "ALC1320LV_RL6981" : [
-        "Register",
-        "AudioDataPath",
-        "AudioDataPhase",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "ALC721_RL6976" : [
-        "Register",
-        "AudioDataPath",
-        "AudioDataPhase",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "ISP" : [
+    "Camera" : [
         "UVM_ENV",
         "Verification",
-        "Survey",
+        "ISP",
         "IPU",
-        "DebugTop",
         "Implmentation"
     ],
-    "ANE20" : [
-        "UVM_ENV",
-        "Algorithm Implmentation",
-        "Regreesion Implmentation",
-        "Verification",
-        "Study",
-        "con2d",
-        "pointwise",
-        "fully"
-    ],
-    "ALC1320HV_RLE1255": [
-        "Register",
-        "AudioDataPath",
-        "AudioDataPhase",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "ALC712VB_RL6977": [
-        "Register",
-        "AudioDataPath",
-        "AudioDataPhase",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "ALC5665VE_RL6992" : [
-        "Register",
-        "AudioDataPath",
-        "AudioDataPhase",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "ALC1018_RL6655": [
-        "Register",
-        "AudioDataPath",
-        "AudioDataPhase",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "ALC5658SLIM_RL7012": [
-        "Register",
-        "AudioDataPath",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "ALC721_RLE1272": [
-        "Register",
-        "AudioDataPath",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "ALC721_RL7001": [
-        "Register",
-        "AudioDataPath",
-        "AudioDataPhase",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
     "ALC5526_RL7048": [
-        "Register",
-        "AudioDataPath",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV"
-    ],
-    "ALC1800_RL6996": [
         "Register",
         "AudioDataPath",
         "ClockGating",
@@ -304,13 +156,6 @@
         "UVM_ENV",
         "Verification"
     ],
-    "RTS3923": [
-        "dma",
-        "npu",
-        "memory",
-        "bus",
-        "axi"
-    ],
     "ALC5525_RL6835": [
         "Register",
         "AudioDataPath",
@@ -326,5 +171,14 @@
         "Coverage",
         "UVM_ENV",
         "Verification"
+    ],
+    "RIGA": [
+        "UVM_ENV",
+        "CMODEL",
+        "Register",
+        "Coverage",
+        "ISP. Verification",
+        "MVP. Verification",
+        "Sys. Verification"
     ]
 }
