@@ -164,7 +164,7 @@
         "UVM_ENV",
         "Verification"
     ],
-    "ALC3326_RL7072": [
+    "ALC4052_U55_RLE1445": [
         "Register",
         "AudioDataPath",
         "ClockGating",
@@ -180,5 +180,13 @@
         "ISP. Verification",
         "MVP. Verification",
         "Sys. Verification"
+    ],
+    "ALC3326_RL7072": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
     ]
 }
