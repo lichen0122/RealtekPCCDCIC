@@ -108,14 +108,6 @@
         "UVM_ENV",
         "Verification"
     ],
-    "ALC1340_RLE1368": [
-        "Register",
-        "AudioDataPath",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV",
-        "Verification"
-    ],
     "ALC766LV_RL7055": [
         "Register",
         "AudioDataPath",
@@ -182,6 +174,14 @@
         "Sys. Verification"
     ],
     "ALC3326_RL7072": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
+    ],
+    "ALC1340_RLE1368": [
         "Register",
         "AudioDataPath",
         "ClockGating",
