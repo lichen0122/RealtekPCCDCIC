@@ -44,7 +44,8 @@
         "GUI Tool Template",
         "SVN Desktop",
         "Spice-PostSim Netlist Checker",
-        "Coverage Refinement Auto-gen"
+        "Coverage Refinement Auto-gen",
+        "Regif Auto-gen"
     ],
     "RTS5881": [
         "ISP DV"
