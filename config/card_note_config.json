@@ -42,7 +42,9 @@
         "Register Automation",
         "Verilog Copilot",
         "GUI Tool Template",
-        "SVN Desktop"
+        "SVN Desktop",
+        "Spice-PostSim Netlist Checker",
+        "Coverage Refinement Auto-gen"
     ],
     "RTS5881": [
         "ISP DV"
