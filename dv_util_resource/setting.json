@@ -1,6 +1,7 @@
 {
 	"FileExchangeToNX":   "https://storage.googleapis.com/cyvisionbot_test_2/Upload_to_NX/version_ctrl/version_RTK.json",
 	"WordIntegration":    "https://storage.googleapis.com/realtek-pccdcic-dv/WordIntegration/word_integration_version.json",
+	"DocToDocx":          "https://storage.googleapis.com/realtek-pccdcic-dv/DocToDocx/doc_to_docx_version.json",
 	"TconAutoGen":        "https://storage.googleapis.com/realtek-pccdcic-dv/TconAutoGen/tcon_auto_gen_version.json",
 	"AudioDataPathCheck": "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPathCheck/audio_data_path_check_version.json",
 	"AudioDataPath":      "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPath/audio_data_path_version.json",
