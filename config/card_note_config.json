@@ -23,29 +23,19 @@
         "SPI_LITE"
     ],
     "Tools": [
-        "卡片盒筆記",
         "audio data path",
         "audio data phase",
         "tcon visio auto gen",
-        "man power gantt",
         "new_regression",
-        "register control by port_name",
         "DV Utilities",
         "analog wrapper auto-gen",
-        "Visio Debug",
-        "Upload To NX",
-        "spec reader",
-        "python env",
-        "Bus Generator",
-        "Logic Check",
         "Combination Circuit Automation",
         "Register Automation",
-        "Verilog Copilot",
-        "GUI Tool Template",
         "SVN Desktop",
         "Spice-PostSim Netlist Checker",
         "Coverage Refinement Auto-gen",
-        "Regif Auto-gen"
+        "Regif Auto-gen",
+        "Regif Flow For IPSIM"
     ],
     "RTS5881": [
         "ISP DV"
