@@ -20,7 +20,7 @@ ctk.ThemeManager.theme['CTkFrame']['fg_color'] = ctk.ThemeManager.theme['CTk']['
 class AutoUpdateGUI():
     url            = ''
     processes      = []
-    version        = 'v20240703'
+    version        = 'v20250724'
     
     def __init__(self):
 
@@ -73,7 +73,7 @@ class AutoUpdateGUI():
         self.root_height = 220
         self.root.configure(bg="white")
         self.root.geometry("%dx%d" % (self.root_width, self.root_height))
-        self.root.resizable(False, False)
+        # self.root.resizable(False, False)
         # self.root.iconbitmap(self.ico_file)
         # self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         default_font = ctk.CTkFont(family="Microsoft JhengHei", size=14)
