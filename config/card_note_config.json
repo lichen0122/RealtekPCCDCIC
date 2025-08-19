@@ -133,6 +133,14 @@
         "UVM_ENV",
         "Verification"
     ],
+    "ALC5525A_T22_RL7082": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
+    ],
     "ALC1320HV_RL7071": [
         "Register",
         "AudioDataPath",
