@@ -35,7 +35,8 @@
         "Spice-PostSim Netlist Checker",
         "Coverage Refinement Auto-gen",
         "Regif Auto-gen",
-        "Regif Flow For IPSIM"
+        "Regif Flow For IPSIM",
+        "IRQ Auto-gen"
     ],
     "RTS5881": [
         "ISP DV"
