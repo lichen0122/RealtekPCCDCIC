@@ -36,7 +36,8 @@
         "Coverage Refinement Auto-gen",
         "Regif Auto-gen",
         "Regif Flow For IPSIM",
-        "IRQ Auto-gen"
+        "IRQ Auto-gen",
+        "Bonder Auto-Placement"
     ],
     "RTS5881": [
         "ISP DV"
