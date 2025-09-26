@@ -10,5 +10,6 @@
 	"VisioDebug":         "https://storage.googleapis.com/cyvisionbot_test_2/visio_debug/version_ctrl/version_RTK.json",
 	"CardNote":           "https://storage.googleapis.com/realtek-pccdcic-dv/CardNote/card_note_version.json",
 	"Spec_Reader":        "https://storage.googleapis.com/cyvisionbot_test_2/Spec_Reader/version_ctrl/version_RTK.json",
-	"LogicCheck":         "https://storage.googleapis.com/realtek-pccdcic-dv/LogicCheck/logic_check_version.json"
+	"LogicCheck":         "https://storage.googleapis.com/realtek-pccdcic-dv/LogicCheck/logic_check_version.json",
+	"ROMConvertion":      "https://storage.googleapis.com/realtek-pccdcic-dv/RomCodeConvertion/rom_code_convertion_version.json"
 }
