@@ -127,6 +127,14 @@
         "UVM_ENV",
         "Verification"
     ],
+    "ALC780_RL7079": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
+    ],
     "ALC5525A_T22_RLE1419": [
         "Register",
         "AudioDataPath",
