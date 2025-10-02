@@ -207,5 +207,13 @@
         "Coverage",
         "UVM_ENV",
         "Verification"
+    ],
+    "ALC1020_RLE1366": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
     ]
 }
