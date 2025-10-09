@@ -224,5 +224,21 @@
         "Coverage",
         "UVM_ENV",
         "Verification"
+    ],
+    "IPU 4.0": [
+        "UVM_ENV",
+        "CMODEL",
+        "Register",
+        "Coverage",
+        "IP Verification",
+        "Sys. Verification"
+    ],
+    "MVP 4.0": [
+        "UVM_ENV",
+        "CMODEL",
+        "Register",
+        "Coverage",
+        "IP Verification",
+        "Sys. Verification"
     ]
 }
