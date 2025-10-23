@@ -38,7 +38,8 @@
         "Regif Flow For IPSIM",
         "IRQ Auto-gen",
         "Bonder Auto-Placement",
-        "RomCode Convertion"
+        "RomCode Convertion",
+        "Analog Port Check"
     ],
     "RTS5881": [
         "ISP DV"
