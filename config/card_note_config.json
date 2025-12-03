@@ -218,14 +218,6 @@
         "UVM_ENV",
         "Verification"
     ],
-    "ALC5693_RL7083": [
-        "Register",
-        "AudioDataPath",
-        "ClockGating",
-        "Coverage",
-        "UVM_ENV",
-        "Verification"
-    ],
     "IPU 4.0": [
         "UVM_ENV",
         "CMODEL",
@@ -249,5 +241,21 @@
         "Coverage",
         "IP Verification",
         "Sys. Verification"
+    ],
+    "ALC5693_RLE1475": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
+    ],
+    "ALC4052_U55_RL7079": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
     ]
 }
