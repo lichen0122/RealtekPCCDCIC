@@ -39,7 +39,8 @@
         "IRQ Auto-gen",
         "Bonder Auto-Placement",
         "RomCode Convertion",
-        "Analog Port Check"
+        "Analog Port Check",
+        "Regif Auto-refine"
     ],
     "RTS5881": [
         "ISP DV"
