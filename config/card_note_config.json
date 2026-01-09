@@ -42,6 +42,9 @@
         "Analog Port Check",
         "Regif Auto-refine"
     ],
+    "AI_Task_Force": [
+        "Work_Record"
+    ],
     "RTS5881": [
         "ISP DV"
     ],
