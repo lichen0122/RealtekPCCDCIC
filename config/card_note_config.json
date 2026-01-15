@@ -261,5 +261,13 @@
         "Coverage",
         "UVM_ENV",
         "Verification"
+    ],
+    "ALC5658_SLIM_RL7012": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
     ]
 }
