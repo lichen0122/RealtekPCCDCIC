@@ -1,6 +1,6 @@
 {
 	"FileExchangeToNX":    "https://storage.googleapis.com/cyvisionbot_test_2/Upload_to_NX/version_ctrl/version_RTK.json",
-	"Register_Editor":     "https://storage.googleapis.com/cyvisionbot_test_2/Register_Editor/version_ctrl/version_RTK.json"
+	"Register_Editor":     "https://storage.googleapis.com/cyvisionbot_test_2/Register_Editor/version_ctrl/version_RTK.json",
 	"DocToDocx":           "https://storage.googleapis.com/realtek-pccdcic-dv/DocToDocx/doc_to_docx_version.json",
 	"WordIntegration":     "https://storage.googleapis.com/realtek-pccdcic-dv/WordIntegration/word_integration_version.json",
 	"RalfAutoGen":         "https://storage.googleapis.com/realtek-pccdcic-dv/RalfAutoGen/ralf_autogen_version.json",
