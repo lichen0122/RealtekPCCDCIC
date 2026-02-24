@@ -1,5 +1,6 @@
 {
 	"FileExchangeToNX":    "https://storage.googleapis.com/cyvisionbot_test_2/Upload_to_NX/version_ctrl/version_RTK.json",
+	"Register_Editor":     "https://storage.googleapis.com/cyvisionbot_test_2/Register_Editor/version_ctrl/version_RTK.json"
 	"DocToDocx":           "https://storage.googleapis.com/realtek-pccdcic-dv/DocToDocx/doc_to_docx_version.json",
 	"WordIntegration":     "https://storage.googleapis.com/realtek-pccdcic-dv/WordIntegration/word_integration_version.json",
 	"RalfAutoGen":         "https://storage.googleapis.com/realtek-pccdcic-dv/RalfAutoGen/ralf_autogen_version.json",
@@ -11,7 +12,6 @@
 	"JsonWordConverter":   "https://storage.googleapis.com/realtek-pccdcic-dv/JsonWordConverter/json_word_converter_version.json",
 	"VisioDebug":          "https://storage.googleapis.com/cyvisionbot_test_2/visio_debug/version_ctrl/version_RTK.json",
 	"CardNote":            "https://storage.googleapis.com/realtek-pccdcic-dv/CardNote/card_note_version.json",
-	"Spec_Reader":         "https://storage.googleapis.com/cyvisionbot_test_2/Spec_Reader/version_ctrl/version_RTK.json",
 	"LogicCheck":          "https://storage.googleapis.com/realtek-pccdcic-dv/LogicCheck/logic_check_version.json",
 	"ROMConvertion":       "https://storage.googleapis.com/realtek-pccdcic-dv/RomCodeConvertion/rom_code_convertion_version.json",
 	"CardNoteIntegration": "https://storage.googleapis.com/realtek-pccdcic-dv/CardNoteIntegration/card_note_integration_version.json"
