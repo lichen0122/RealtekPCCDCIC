@@ -40,7 +40,8 @@
         "Bonder Auto-Placement",
         "RomCode Convertion",
         "Analog Port Check",
-        "Regif Auto-refine"
+        "Regif Auto-refine",
+        "RegisterEditor"
     ],
     "AI_Task_Force": [
         "Work_Record"
