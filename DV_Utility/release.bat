@@ -1,5 +1,5 @@
 @echo off
-C:\Users\lichen.liu\AppData\Local\anaconda3\envs\tcon_visio\Scripts\pyinstaller.exe -F --noconsole --add-data "C:\Users\lichen.liu\AppData\Local\anaconda3\envs\tcon_visio\Lib\site-packages\customtkinter;customtkinter/" --noconfirm  ./dv_utility.py
+pyinstaller -F --noconsole --add-data "C:\users\lichen.liu\venv_migrated\register\Lib\site-packages\PyQt6;PyQt6/" --add-data "%~dp0..\_ico\realtek.png;." --icon="%~dp0..\_ico\realtek.ico" --noconfirm  ./dv_utility.py
 
 copy dist\dv_utility.exe DV_Utility.exe
 
