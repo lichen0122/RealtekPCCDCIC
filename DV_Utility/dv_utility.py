@@ -417,7 +417,8 @@ class AutoUpdateGUI(QMainWindow):
 
         self.target_directory = self.target_directory.replace('\\', '/')
         print(self.exe_name, self.work_dir, self.target_directory)
-        self.processes.append(subprocess.Popen([self.exe_name, self.work_dir], cwd=self.target_directory))
+        exe_path = f"{self.target_directory}/{self.exe_name}"
+        self.processes.append(subprocess.Popen([exe_path, self.work_dir], cwd=self.target_directory))
 
     def extract_zip(self, zip_file_name, extract_dir):
         result = True
