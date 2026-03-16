@@ -14,5 +14,5 @@
 	"ROM Code Convertion":                              "https://storage.googleapis.com/realtek-pccdcic-dv/RomCodeConvertion/rom_code_convertion_version.json",
 	"ManPower - CardNote":                              "https://storage.googleapis.com/realtek-pccdcic-dv/CardNote/card_note_version.json",
 	"ManPower - CardNoteIntegration":                   "https://storage.googleapis.com/realtek-pccdcic-dv/CardNoteIntegration/card_note_integration_version.json",
-	"Logic Check":                                      "https://storage.googleapis.com/realtek-pccdcic-dv/LogicCheck/logic_check_version.json"
+	"Design - Gate Level Design":                       "https://storage.googleapis.com/realtek-pccdcic-dv/GateLevelDesign/version_gate_level_design.json"
 }
