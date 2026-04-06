@@ -33,8 +33,10 @@ Manages global application settings. The settings file is stored at `~/.PCDV/Reg
 | `user_name` | `str` | User name (must not contain `@`) |
 | `ssh_key_path` | `str` | Path to SSH private key (falls back to embedded key when empty) |
 | `portable_git_path` | `str` | Path to PortableGit folder (uses system PATH when empty) |
-| `fetch_on_open` | `bool` | Whether to auto-fetch on startup |
+| `fetch_on_page_switch` | `bool` | Whether to auto-fetch on page switch |
+| `remind_to_upload` | `bool` | Show a reminder to commit & upload after save |
 | `font_size_str` | `str` | Font size preset (`Small` / `Medium` / `Large`) |
+| `history_editor_only` | `bool` | Only show commits that touch the Register_Editor folder |
 | `window_geometry` | `str` | Window geometry (base64-encoded) |
 
 **Computed Properties:**
@@ -44,7 +46,10 @@ Manages global application settings. The settings file is stored at `~/.PCDV/Reg
 | `git_available` | Whether Git is reachable (system PATH or PortableGit) |
 | `git_executable` | Full path to git.exe |
 | `ssh_executable` | Full path to ssh.exe |
+| `os_login_name` | Cached OS login name (empty string if unavailable) |
+| `effective_user_name` | OS login name if available, otherwise saved `user_name` |
 | `is_admin` | Whether the current user is an admin |
+| `is_setup_complete` | Whether user name, SSH key, and git are all configured |
 | `using_embedded_key` | Whether the embedded SSH key is in use |
 | `font_pixel_size` | Pixel size for the current font preset |
 

@@ -75,7 +75,9 @@ def _get_embedded_key_path() -> str:
 
 @dataclass
 class AppSettings:
-    fetch_on_open: bool = False
+    fetch_on_page_switch: bool = True
+    # Show a reminder to commit & upload after save / new-file / merge
+    remind_to_upload: bool = True
     # Absolute path to SSH private key for Gerrit server
     ssh_key_path: str = ""
     # Window geometry stored as base64-encoded string of QByteArray
@@ -86,6 +88,8 @@ class AppSettings:
     portable_git_path: str = ""
     # Font size preset: "Small" (13px), "Medium" (15px), "Large" (17px)
     font_size_str: str = "Medium"
+    # History tab: only show commits that touch the Register_Editor folder
+    history_editor_only: bool = False
 
     @property
     def git_executable(self) -> str:
@@ -116,9 +120,37 @@ class AppSettings:
         return _FONT_SIZE_MAP.get(self.font_size_str, 15)
 
     @property
+    def os_login_name(self) -> str:
+        """Cached OS login name (empty string if unavailable)."""
+        try:
+            name = self._os_login_cache
+        except AttributeError:
+            try:
+                name = os.getlogin().strip()
+            except OSError:
+                name = ""
+            name = ""
+            self._os_login_cache = name  # type: ignore[misc]
+        return name
+
+    @property
+    def effective_user_name(self) -> str:
+        """Return OS login name if available, otherwise the saved *user_name*."""
+        return self.os_login_name or self.user_name.strip()
+
+    @property
     def is_admin(self) -> bool:
         """True when the current user_name is in the admin list."""
-        return self.user_name.strip() in _ADMIN_USERS
+        return self.effective_user_name in _ADMIN_USERS
+
+    @property
+    def is_setup_complete(self) -> bool:
+        """Return True if user name, SSH key, and git are all configured."""
+        return (
+            bool(self.effective_user_name)
+            and bool(self.ssh_key_path.strip())
+            and self.git_available
+        )
 
     @property
     def using_embedded_key(self) -> bool:
@@ -143,8 +175,11 @@ class AppSettings:
         dirty = False
 
         # ── type checks ──
-        if not isinstance(self.fetch_on_open, bool):
-            self.fetch_on_open = False
+        if not isinstance(self.fetch_on_page_switch, bool):
+            self.fetch_on_page_switch = False
+            dirty = True
+        if not isinstance(self.remind_to_upload, bool):
+            self.remind_to_upload = True
             dirty = True
         if not isinstance(self.ssh_key_path, str):
             self.ssh_key_path = ""
@@ -160,6 +195,9 @@ class AppSettings:
             dirty = True
         if not isinstance(self.font_size_str, str):
             self.font_size_str = "Medium"
+            dirty = True
+        if not isinstance(self.history_editor_only, bool):
+            self.history_editor_only = False
             dirty = True
 
         # ── value checks ──

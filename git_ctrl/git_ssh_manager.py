@@ -27,7 +27,7 @@ import subprocess
 import sys
 import time
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Self
@@ -36,6 +36,10 @@ logger = logging.getLogger(__name__)
 
 # Git repos are stored under ~/PCDV/GitRepo/
 GIT_REPO_ROOT = Path.home() / "PCDV" / "GitRepo"
+
+# Allowed file extensions for upload.
+# None = allow all files; set = only allow these extensions (e.g. {".json"}).
+ALLOWED_UPLOAD_EXTENSIONS: set[str] | None = {".json"}
 
 
 # ---------------------------------------------------------------------------
