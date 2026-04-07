@@ -19,122 +19,24 @@ Usage:
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
-import zipfile
 from pathlib import Path
-import requests
 
 from app_settings import (
     GERRIT_HOST,
     GERRIT_PORT,
     GERRIT_USER,
     GERRIT_GIT_ROOT,
-    PORTABLE_GIT_DIR,
-    PORTABLE_GIT_MARKER,
-    PORTABLE_GIT_URL,
-    _is_portable_git_valid,
     _GERRIT_HIDDEN_PROJECTS,
     _GERRIT_ADMIN_PROJECTS,
     _GERRIT_PROJECT_PREFIX,
     app_settings,
 )
-from git_ssh_manager import GitSSHManager, GitCommandError, GIT_REPO_ROOT
-
-
-# ── PortableGit auto-download ────────────────────────────────────
-
-
-def _print_progress_bar(current: int, total: int, label: str, bar_len: int = 40) -> None:
-    """Print a terminal progress bar that overwrites itself on the same line.
-
-    Args:
-        current (int): Current progress value.
-        total (int): Total value (100%).
-        label (str): Text label shown before the bar.
-        bar_len (int): Character width of the bar.
-    """
-    if total <= 0:
-        return
-    fraction = current / total
-    filled = int(bar_len * fraction)
-    bar = "█" * filled + "─" * (bar_len - filled)
-    pct = fraction * 100
-    print(f"\r  {label} [{bar}] {pct:5.1f}%", end="", flush=True)
-
-
-def download_portable_git() -> bool:
-    """Download PortableGit.zip and extract it, showing terminal progress.
-
-    Downloads from PORTABLE_GIT_URL into PORTABLE_GIT_DIR.parent/PortableGit.zip,
-    then extracts to PORTABLE_GIT_DIR.parent (the zip contains a top-level
-    PortableGit/ folder, yielding the expected layout).
-
-    Returns:
-        bool: True on success, False on error.
-    """
-    zip_path = PORTABLE_GIT_DIR.parent / "PortableGit.zip"
-    extract_dest = PORTABLE_GIT_DIR.parent  # zip contains PortableGit/ folder
-
-    # ── Phase 1: Download ──
-    print(f"\n  下載來源: {PORTABLE_GIT_URL}")
-    print(f"  儲存位置: {zip_path}\n")
-    try:
-        zip_path.parent.mkdir(parents=True, exist_ok=True)
-        with requests.get(PORTABLE_GIT_URL, stream=True, timeout=(30, 60)) as resp:
-            resp.raise_for_status()
-            total_size = int(resp.headers.get("Content-Length", 0))
-            downloaded = 0
-            with open(zip_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=256 * 1024):
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total_size > 0:
-                        _print_progress_bar(downloaded, total_size, "Downloading")
-        # Finish the progress line
-        if total_size > 0:
-            _print_progress_bar(total_size, total_size, "Downloading")
-        mb = downloaded / (1024 * 1024)
-        print(f"\n  Download complete ({mb:.1f} MB)\n")
-    except Exception as e:
-        print(f"\n  [Error] 下載失敗: {e}")
-        zip_path.unlink(missing_ok=True)
-        return False
-
-    # ── Phase 2: Extract ──
-    print(f"  解壓縮到: {extract_dest}\n")
-    try:
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            members = zf.namelist()
-            total_members = len(members)
-            for i, member in enumerate(members, 1):
-                zf.extract(member, extract_dest)
-                # Update progress every 200 entries to avoid excessive I/O
-                if i % 200 == 0 or i == total_members:
-                    _print_progress_bar(i, total_members, "Extracting ")
-        _print_progress_bar(total_members, total_members, "Extracting ")
-        print(f"\n  Extract complete ({total_members} files)\n")
-    except Exception as e:
-        print(f"\n  [Error] 解壓縮失敗: {e}")
-        zip_path.unlink(missing_ok=True)
-        if PORTABLE_GIT_DIR.exists():
-            shutil.rmtree(PORTABLE_GIT_DIR, ignore_errors=True)
-        return False
-
-    # ── Cleanup zip ──
-    zip_path.unlink(missing_ok=True)
-
-    # ── Verify ──
-    if not (PORTABLE_GIT_DIR / "cmd" / "git.exe").is_file():
-        print("  [Error] 解壓縮完成但找不到 cmd/git.exe，檔案可能損壞。")
-        return False
-    if not (PORTABLE_GIT_DIR / "usr" / "bin" / "ssh.exe").is_file():
-        print("  [Error] 解壓縮完成但找不到 usr/bin/ssh.exe，檔案可能損壞。")
-        return False
-
-    print(f"  PortableGit 已安裝至: {PORTABLE_GIT_DIR}")
-    return True
+from git_ssh_manager import (
+    GitSSHManager, GitCommandError, GIT_REPO_ROOT,
+    PORTABLE_GIT_DIR, ensure_portable_git,
+)
 
 
 # ── Helper functions ─────────────────────────────────────────────
@@ -256,22 +158,11 @@ if __name__ == "__main__":
 
     # ── 0b. Auto-setup PortableGit ────────────────────────────────
     if not app_settings.git_available:
-        # Fully valid installation — just reuse it
-        if _is_portable_git_valid(PORTABLE_GIT_DIR):
-            app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
-            app_settings.save()
-            print(f"  已偵測到 PortableGit: {PORTABLE_GIT_DIR}")
-        else:
-            # Incomplete or corrupt — wipe and re-download
-            if PORTABLE_GIT_DIR.exists():
-                shutil.rmtree(PORTABLE_GIT_DIR, ignore_errors=True)
-            if not download_portable_git():
-                print("  [Error] PortableGit 安裝失敗，程式結束。")
-                sys.exit(1)
-            # Mark installation as complete
-            PORTABLE_GIT_MARKER.touch()
-            app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
-            app_settings.save()
+        if not ensure_portable_git(verbose=True):
+            print("  [Error] PortableGit 安裝失敗，程式結束。")
+            sys.exit(1)
+        app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
+        app_settings.save()
 
     # ── 0c. Print settings ──────────────────────────────────────
     print("=" * 50)

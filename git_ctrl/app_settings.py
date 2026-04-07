@@ -10,34 +10,15 @@ import zlib
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from git_ssh_manager import (
+    PORTABLE_GIT_DIR,
+    PORTABLE_GIT_MARKER,
+    is_portable_git_valid,
+)
+
 APP_NAME = "Register_Editor"
 
 SETTINGS_PATH = Path.home() / ".PCDV" / APP_NAME / "settings.json"
-
-# ── PortableGit auto-download constants ─────────────────────────
-PORTABLE_GIT_DIR = Path.home() / ".PCDV" / "PortableGit"
-PORTABLE_GIT_URL = "https://storage.googleapis.com/cyvisionbot_test_2/Download/PortableGit.zip"
-# Marker file created after a successful download + extraction of PortableGit
-PORTABLE_GIT_MARKER = PORTABLE_GIT_DIR / ".setup_complete"
-
-
-def _is_portable_git_valid(base: Path) -> bool:
-    """Check whether *base* contains a complete PortableGit installation.
-
-    Validates the presence of ``cmd/git.exe``, ``usr/bin/ssh.exe``, and the
-    setup-complete marker file.
-
-    Args:
-        base (Path): Root directory of the PortableGit installation.
-
-    Returns:
-        bool: True when all required files exist.
-    """
-    return (
-        (base / "cmd" / "git.exe").is_file()
-        and (base / "usr" / "bin" / "ssh.exe").is_file()
-        and PORTABLE_GIT_MARKER.is_file()
-    )
 
 # ── Gerrit server constants ──────────────────────────────────────
 GERRIT_HOST = "pcicdv-git.rtkbf.com"
@@ -146,7 +127,7 @@ class AppSettings:
         """
         if not self.portable_git_path:
             return False
-        return _is_portable_git_valid(Path(self.portable_git_path))
+        return is_portable_git_valid(Path(self.portable_git_path))
 
     @property
     def font_pixel_size(self) -> int:
@@ -242,7 +223,7 @@ class AppSettings:
         # ── value checks ──
         # portable_git_path: must contain cmd/git.exe, usr/bin/ssh.exe, and marker
         if self.portable_git_path:
-            if not _is_portable_git_valid(Path(self.portable_git_path)):
+            if not is_portable_git_valid(Path(self.portable_git_path)):
                 self.portable_git_path = ""
                 dirty = True
 

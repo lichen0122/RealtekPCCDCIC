@@ -5,6 +5,7 @@ Features:
     - All operations go through subprocess calling git CLI directly, no third-party Git libraries
     - Customizable SSH key path, injected via GIT_SSH_COMMAND
     - Portable Git support (custom git / ssh executable paths)
+    - Auto-download PortableGit when not installed (``ensure_portable_git``)
     - Auto retry with exponential backoff for network operations (push / pull / clone / fetch / ls-remote)
     - Repo path restricted to ~/PCDV/GitRepo/
     - Full operation history for debugging
@@ -12,6 +13,10 @@ Features:
 
 Exports:
     - GIT_REPO_ROOT: Root directory for Git repos (~/PCDV/GitRepo/)
+    - PORTABLE_GIT_DIR / PORTABLE_GIT_URL / PORTABLE_GIT_MARKER: PortableGit constants
+    - is_portable_git_valid: Check whether a PortableGit directory is complete
+    - download_portable_git: Download and extract PortableGit (pure Python, no Qt)
+    - ensure_portable_git: Validate-or-download in one call
     - GitCommandError: Exception raised when a git command fails
     - GitOperation: Single operation record dataclass
     - GitSSHManager: Core manager class
@@ -27,10 +32,12 @@ import subprocess
 import sys
 import time
 import shutil
+import urllib.request
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Self
+from typing import Callable, Self
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +47,216 @@ GIT_REPO_ROOT = Path.home() / "PCDV" / "GitRepo"
 # Allowed file extensions for upload.
 # None = allow all files; set = only allow these extensions (e.g. {".json"}).
 ALLOWED_UPLOAD_EXTENSIONS: set[str] | None = {".json"}
+
+# ---------------------------------------------------------------------------
+# PortableGit Auto-Download
+# ---------------------------------------------------------------------------
+
+# Default installation directory for PortableGit
+PORTABLE_GIT_DIR = Path.home() / ".PCDV" / "PortableGit"
+# Remote URL hosting the PortableGit.zip archive
+PORTABLE_GIT_URL = "https://storage.googleapis.com/cyvisionbot_test_2/Download/PortableGit.zip"
+# Marker file created after a successful download + extraction
+PORTABLE_GIT_MARKER = PORTABLE_GIT_DIR / ".setup_complete"
+
+
+def is_portable_git_valid(base: Path) -> bool:
+    """Check whether *base* contains a complete PortableGit installation.
+
+    Validates the presence of ``cmd/git.exe``, ``usr/bin/ssh.exe``, and the
+    setup-complete marker file.
+
+    Args:
+        base (Path): Root directory of the PortableGit installation.
+
+    Returns:
+        bool: True when all required files exist.
+    """
+    return (
+        (base / "cmd" / "git.exe").is_file()
+        and (base / "usr" / "bin" / "ssh.exe").is_file()
+        and PORTABLE_GIT_MARKER.is_file()
+    )
+
+
+class PortableGitCancelled(Exception):
+    """Raised when a PortableGit download is cancelled via *is_cancelled* callback."""
+
+
+def _print_progress_bar(percent: int) -> None:
+    """Print a terminal progress bar that overwrites the current line.
+
+    Example output::
+
+        [████████████████████────────────────────]  50%
+
+    Args:
+        percent (int): Progress value between 0 and 100.
+    """
+    bar_length = 40
+    filled = int(bar_length * percent / 100)
+    bar = "█" * filled + "─" * (bar_length - filled)
+    print(f"\r  [{bar}] {percent:3d}%", end="", flush=True)
+    if percent >= 100:
+        print()  # newline when complete
+
+
+def download_portable_git(
+    url: str = PORTABLE_GIT_URL,
+    extract_dir: Path = PORTABLE_GIT_DIR,
+    *,
+    on_progress: Callable[[int], None] | None = None,
+    on_phase: Callable[[str], None] | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> None:
+    """Download and extract PortableGit (pure Python, no Qt dependency).
+
+    Two-phase operation: stream-download the zip, then extract it.
+    Progress and phase callbacks are invoked throughout so callers (e.g. a
+    QThread) can update their UI.
+
+    Args:
+        url (str): Download URL for PortableGit.zip.
+        extract_dir (Path): Target directory (e.g. ``~/.PCDV/PortableGit``).
+        on_progress (Callable[[int], None] | None): Called with 0-100 percentage.
+        on_phase (Callable[[str], None] | None): Called with a label describing
+            the current phase.
+        is_cancelled (Callable[[], bool] | None): Polled at chunk/entry
+            boundaries; return True to abort.
+
+    Raises:
+        PortableGitCancelled: If *is_cancelled* returns True.
+        Exception: On download or extraction failure (partial files are cleaned up).
+    """
+    zip_path = extract_dir.parent / "PortableGit.zip"
+
+    def _cancelled() -> bool:
+        return is_cancelled is not None and is_cancelled()
+
+    def _cleanup_partial() -> None:
+        """Remove partial zip and extraction directory."""
+        zip_path.unlink(missing_ok=True)
+        shutil.rmtree(extract_dir, ignore_errors=True)
+
+    try:
+        # ── Phase 1: Download ──
+        if on_phase:
+            on_phase("Downloading PortableGit.zip ...")
+        zip_path.parent.mkdir(parents=True, exist_ok=True)
+
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            total = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            with open(zip_path, "wb") as f:
+                while True:
+                    if _cancelled():
+                        raise PortableGitCancelled
+                    chunk = resp.read(256 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if on_progress and total > 0:
+                        on_progress(int(downloaded * 100 / total))
+
+        if _cancelled():
+            raise PortableGitCancelled
+
+        # ── Phase 2: Extract ──
+        # The zip contains a top-level ``PortableGit/`` folder, so
+        # extracting into the parent (e.g. ``.PCDV/``) yields the expected
+        # ``.PCDV/PortableGit/`` layout without extra nesting.
+        if on_phase:
+            on_phase("Extracting PortableGit ...")
+        if on_progress:
+            on_progress(0)
+
+        dest = extract_dir.parent
+        dest.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            members = zf.namelist()
+            total_members = len(members)
+            for i, member in enumerate(members, 1):
+                if _cancelled():
+                    raise PortableGitCancelled
+                zf.extract(member, dest)
+                # Emit progress every 200 entries to avoid callback flooding
+                if on_progress and (i % 200 == 0 or i == total_members):
+                    on_progress(int(i * 100 / total_members))
+
+        if _cancelled():
+            raise PortableGitCancelled
+
+        # Download + extraction succeeded — remove the zip file
+        zip_path.unlink(missing_ok=True)
+
+    except PortableGitCancelled:
+        _cleanup_partial()
+        raise
+    except Exception:
+        _cleanup_partial()
+        raise
+
+
+def ensure_portable_git(
+    extract_dir: Path = PORTABLE_GIT_DIR,
+    *,
+    verbose: bool = False,
+    on_progress: Callable[[int], None] | None = None,
+    on_phase: Callable[[str], None] | None = None,
+    is_cancelled: Callable[[], bool] | None = None,
+) -> bool:
+    """Validate or download PortableGit in one call.
+
+    If *extract_dir* already contains a valid installation, returns True
+    immediately. Otherwise wipes any partial download, calls
+    ``download_portable_git``, and creates the marker file on success.
+
+    When *verbose* is True and no custom callbacks are provided, a built-in
+    terminal progress bar is used so the caller can simply write::
+
+        ensure_portable_git(verbose=True)
+
+    Args:
+        extract_dir (Path): Target directory (e.g. ``~/.PCDV/PortableGit``).
+        verbose (bool): When True, use built-in terminal progress bar and
+            print phase labels. Ignored if *on_progress* or *on_phase* are
+            explicitly provided.
+        on_progress (Callable[[int], None] | None): Passed to ``download_portable_git``.
+        on_phase (Callable[[str], None] | None): Passed to ``download_portable_git``.
+        is_cancelled (Callable[[], bool] | None): Passed to ``download_portable_git``.
+
+    Returns:
+        bool: True on success (existing or freshly downloaded), False on
+            cancellation or error.
+    """
+    if is_portable_git_valid(extract_dir):
+        return True
+
+    # verbose mode: use built-in terminal callbacks when caller didn't provide their own
+    if verbose:
+        if on_progress is None:
+            on_progress = _print_progress_bar
+        if on_phase is None:
+            on_phase = print
+
+    # Incomplete or corrupt — wipe and re-download
+    shutil.rmtree(extract_dir, ignore_errors=True)
+
+    try:
+        download_portable_git(
+            extract_dir=extract_dir,
+            on_progress=on_progress,
+            on_phase=on_phase,
+            is_cancelled=is_cancelled,
+        )
+    except Exception:
+        return False
+
+    # Mark installation as complete
+    PORTABLE_GIT_MARKER.touch()
+    return True
 
 
 # ---------------------------------------------------------------------------
