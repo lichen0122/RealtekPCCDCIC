@@ -4,7 +4,6 @@ import atexit
 import base64
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 import zlib
@@ -18,6 +17,27 @@ SETTINGS_PATH = Path.home() / ".PCDV" / APP_NAME / "settings.json"
 # ── PortableGit auto-download constants ─────────────────────────
 PORTABLE_GIT_DIR = Path.home() / ".PCDV" / "PortableGit"
 PORTABLE_GIT_URL = "https://storage.googleapis.com/cyvisionbot_test_2/Download/PortableGit.zip"
+# Marker file created after a successful download + extraction of PortableGit
+PORTABLE_GIT_MARKER = PORTABLE_GIT_DIR / ".setup_complete"
+
+
+def _is_portable_git_valid(base: Path) -> bool:
+    """Check whether *base* contains a complete PortableGit installation.
+
+    Validates the presence of ``cmd/git.exe``, ``usr/bin/ssh.exe``, and the
+    setup-complete marker file.
+
+    Args:
+        base (Path): Root directory of the PortableGit installation.
+
+    Returns:
+        bool: True when all required files exist.
+    """
+    return (
+        (base / "cmd" / "git.exe").is_file()
+        and (base / "usr" / "bin" / "ssh.exe").is_file()
+        and PORTABLE_GIT_MARKER.is_file()
+    )
 
 # ── Gerrit server constants ──────────────────────────────────────
 GERRIT_HOST = "pcicdv-git.rtkbf.com"
@@ -97,26 +117,36 @@ class AppSettings:
 
     @property
     def git_executable(self) -> str:
-        """Full path to git.exe when using PortableGit, otherwise 'git'."""
+        """Full path to git.exe (always PortableGit).
+
+        Returns:
+            str: Absolute path to git.exe.
+        """
         if self.portable_git_path:
             return str(Path(self.portable_git_path) / "cmd" / "git.exe")
-        return "git"
+        return str(PORTABLE_GIT_DIR / "cmd" / "git.exe")
 
     @property
     def ssh_executable(self) -> str:
-        """Full path to ssh.exe when using PortableGit, otherwise 'ssh'."""
+        """Full path to ssh.exe (always PortableGit).
+
+        Returns:
+            str: Absolute path to ssh.exe.
+        """
         if self.portable_git_path:
             return str(Path(self.portable_git_path) / "usr" / "bin" / "ssh.exe")
-        return "ssh"
+        return str(PORTABLE_GIT_DIR / "usr" / "bin" / "ssh.exe")
 
     @property
     def git_available(self) -> bool:
-        """True when git is reachable (system PATH or valid portable_git_path)."""
-        if shutil.which("git"):
-            return True
-        if self.portable_git_path:
-            return Path(self.portable_git_path, "cmd", "git.exe").is_file()
-        return False
+        """True when PortableGit is fully installed (git.exe + ssh.exe + marker file).
+
+        Returns:
+            bool: Whether PortableGit is ready to use.
+        """
+        if not self.portable_git_path:
+            return False
+        return _is_portable_git_valid(Path(self.portable_git_path))
 
     @property
     def font_pixel_size(self) -> int:
@@ -148,7 +178,13 @@ class AppSettings:
 
     @property
     def is_setup_complete(self) -> bool:
-        """Return True if user name, SSH key, and git are all configured."""
+        """Return True if user name, SSH key, and git are all configured.
+
+        ``git_available`` already validates the marker file, so no extra check needed.
+
+        Returns:
+            bool: Whether all setup requirements are met.
+        """
         return (
             bool(self.effective_user_name)
             and bool(self.ssh_key_path.strip())
@@ -204,9 +240,9 @@ class AppSettings:
             dirty = True
 
         # ── value checks ──
-        # portable_git_path: must contain cmd/git.exe when set
+        # portable_git_path: must contain cmd/git.exe, usr/bin/ssh.exe, and marker
         if self.portable_git_path:
-            if not Path(self.portable_git_path, "cmd", "git.exe").is_file():
+            if not _is_portable_git_valid(Path(self.portable_git_path)):
                 self.portable_git_path = ""
                 dirty = True
 

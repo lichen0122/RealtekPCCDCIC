@@ -32,7 +32,9 @@ from app_settings import (
     GERRIT_USER,
     GERRIT_GIT_ROOT,
     PORTABLE_GIT_DIR,
+    PORTABLE_GIT_MARKER,
     PORTABLE_GIT_URL,
+    _is_portable_git_valid,
     _GERRIT_HIDDEN_PROJECTS,
     _GERRIT_ADMIN_PROJECTS,
     _GERRIT_PROJECT_PREFIX,
@@ -126,6 +128,9 @@ def download_portable_git() -> bool:
     # ── Verify ──
     if not (PORTABLE_GIT_DIR / "cmd" / "git.exe").is_file():
         print("  [Error] 解壓縮完成但找不到 cmd/git.exe，檔案可能損壞。")
+        return False
+    if not (PORTABLE_GIT_DIR / "usr" / "bin" / "ssh.exe").is_file():
+        print("  [Error] 解壓縮完成但找不到 usr/bin/ssh.exe，檔案可能損壞。")
         return False
 
     print(f"  PortableGit 已安裝至: {PORTABLE_GIT_DIR}")
@@ -249,39 +254,24 @@ if __name__ == "__main__":
             app_settings.user_name = name
             break
 
-    # ── 0b. Check git_available ─────────────────────────────────
-    while not app_settings.git_available:
-        print(
-            "\n如果電腦尚未安裝 Git 套件，請按照以下步驟安裝。\n"
-            "到 Git 官網 https://git-scm.com/install/windows 下載安裝程式。\n"
-            "下載 Git for Windows/x64 Setup 進行安裝 (過程中都選預設選項)，\n"
-            "成功安裝後，重啟此程式即可。\n"
-            "\n"
-            "如果因權限的問題無法安裝，有兩種替代方案：\n"
-            f"  1. 自動下載 PortableGit 到 {PORTABLE_GIT_DIR}\n"
-            f"     (來源: {PORTABLE_GIT_URL})\n"
-            "  2. 手動下載 Git for Windows/x64 Portable，\n"
-            "     解壓縮後輸入 PortableGit 資料夾路徑。"
-        )
-        choice = input("\n請選擇: [1] 自動下載 / [2] 手動輸入路徑 / [Enter] 離開: ").strip()
-        if not choice:
-            sys.exit(0)
-        if choice == "1":
-            # Check if a previous download already exists
-            if PORTABLE_GIT_DIR.exists() and (PORTABLE_GIT_DIR / "cmd" / "git.exe").is_file():
-                print(f"  已偵測到 PortableGit: {PORTABLE_GIT_DIR}")
-                app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
-                continue
-            # Download and extract
-            if download_portable_git():
-                app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
-        elif choice == "2":
-            portable_path = input("請輸入 PortableGit 資料夾路徑: ").strip()
-            if not portable_path:
-                continue
-            app_settings.portable_git_path = portable_path
-            if not app_settings.git_available:
-                print(f"路徑 '{portable_path}' 下找不到 cmd/git.exe，請重新輸入。")
+    # ── 0b. Auto-setup PortableGit ────────────────────────────────
+    if not app_settings.git_available:
+        # Fully valid installation — just reuse it
+        if _is_portable_git_valid(PORTABLE_GIT_DIR):
+            app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
+            app_settings.save()
+            print(f"  已偵測到 PortableGit: {PORTABLE_GIT_DIR}")
+        else:
+            # Incomplete or corrupt — wipe and re-download
+            if PORTABLE_GIT_DIR.exists():
+                shutil.rmtree(PORTABLE_GIT_DIR, ignore_errors=True)
+            if not download_portable_git():
+                print("  [Error] PortableGit 安裝失敗，程式結束。")
+                sys.exit(1)
+            # Mark installation as complete
+            PORTABLE_GIT_MARKER.touch()
+            app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
+            app_settings.save()
 
     # ── 0c. Print settings ──────────────────────────────────────
     print("=" * 50)

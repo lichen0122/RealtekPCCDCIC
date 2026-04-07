@@ -18,7 +18,8 @@ from pathlib import Path
 
 from app_settings import (
     PORTABLE_GIT_DIR,
-    PORTABLE_GIT_URL,
+    PORTABLE_GIT_MARKER,
+    _is_portable_git_valid,
     _GERRIT_ADMIN_PROJECTS,
     _GERRIT_HIDDEN_PROJECTS,
     _GERRIT_PROJECT_PREFIX,
@@ -191,31 +192,24 @@ if __name__ == "__main__":
             app_settings.user_name = name
             break
 
-    # ── 0b. Check git_available ─────────────────────────────────
-    while not app_settings.git_available:
-        print(
-            "\nGit is not available. Options:\n"
-            f"  1. Auto-download PortableGit to {PORTABLE_GIT_DIR}\n"
-            f"     (Source: {PORTABLE_GIT_URL})\n"
-            "  2. Manually enter PortableGit folder path"
-        )
-        choice = input("\nChoose: [1] Auto-download / [2] Manual path / [Enter] Exit: ").strip()
-        if not choice:
-            sys.exit(0)
-        if choice == "1":
-            if PORTABLE_GIT_DIR.exists() and (PORTABLE_GIT_DIR / "cmd" / "git.exe").is_file():
-                print(f"  PortableGit already exists: {PORTABLE_GIT_DIR}")
-                app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
-                continue
-            if download_portable_git():
-                app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
-        elif choice == "2":
-            portable_path = input("Enter PortableGit folder path: ").strip()
-            if not portable_path:
-                continue
-            app_settings.portable_git_path = portable_path
-            if not app_settings.git_available:
-                print(f"cmd/git.exe not found under '{portable_path}', please try again.")
+    # ── 0b. Auto-setup PortableGit ────────────────────────────────
+    if not app_settings.git_available:
+        # Fully valid installation — just reuse it
+        if _is_portable_git_valid(PORTABLE_GIT_DIR):
+            app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
+            app_settings.save()
+            print(f"  PortableGit already exists: {PORTABLE_GIT_DIR}")
+        else:
+            # Incomplete or corrupt — wipe and re-download
+            if PORTABLE_GIT_DIR.exists():
+                shutil.rmtree(PORTABLE_GIT_DIR, ignore_errors=True)
+            if not download_portable_git():
+                print("  [Error] PortableGit installation failed, exiting.")
+                sys.exit(1)
+            # Mark installation as complete
+            PORTABLE_GIT_MARKER.touch()
+            app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
+            app_settings.save()
 
     # ── 1. Validate APP_INIT_MAP source files ───────────────────
     print("=" * 50)

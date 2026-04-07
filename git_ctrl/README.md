@@ -5,7 +5,7 @@ A Python module for managing a Gerrit Git server over SSH. All Git operations ar
 ## Requirements
 
 - Python 3.12+
-- Git CLI (system PATH or PortableGit — auto-download available)
+- PortableGit (auto-downloaded on first run, no system git required)
 - `requests` (for PortableGit auto-download in `example.py`)
 
 ## File Structure
@@ -37,7 +37,7 @@ Manages global application settings. The settings file is stored at `~/.PCDV/Reg
 |---|---|---|
 | `user_name` | `str` | User name (must not contain `@`) |
 | `ssh_key_path` | `str` | Path to SSH private key (falls back to embedded key when empty) |
-| `portable_git_path` | `str` | Path to PortableGit folder (uses system PATH when empty) |
+| `portable_git_path` | `str` | Root path of PortableGit folder (auto-managed) |
 | `fetch_on_page_switch` | `bool` | Whether to auto-fetch on page switch |
 | `remind_to_upload` | `bool` | Show a reminder to commit & upload after save |
 | `font_size_str` | `str` | Font size preset (`Small` / `Medium` / `Large`) |
@@ -48,7 +48,7 @@ Manages global application settings. The settings file is stored at `~/.PCDV/Reg
 
 | Property | Description |
 |---|---|
-| `git_available` | Whether Git is reachable (system PATH or PortableGit) |
+| `git_available` | Whether PortableGit is fully installed (git.exe + ssh.exe + marker file) |
 | `git_executable` | Full path to git.exe |
 | `ssh_executable` | Full path to ssh.exe |
 | `os_login_name` | Cached OS login name (empty string if unavailable) |
@@ -67,6 +67,13 @@ Manages global application settings. The settings file is stored at `~/.PCDV/Reg
 | `GERRIT_GIT_ROOT` | `ssh://cychang@pcicdv-git.rtkbf.com:29418` |
 | `PORTABLE_GIT_DIR` | `~/.PCDV/PortableGit` (auto-download target directory) |
 | `PORTABLE_GIT_URL` | GCS URL for PortableGit.zip (~160 MB) |
+| `PORTABLE_GIT_MARKER` | `~/.PCDV/PortableGit/.setup_complete` (marker file created after successful download + extraction) |
+
+**Shared Helpers:**
+
+| Function | Description |
+|---|---|
+| `_is_portable_git_valid(base)` | Validates that a directory contains `cmd/git.exe`, `usr/bin/ssh.exe`, and the marker file. Used by `git_available`, `_validate()`, and callers of `download_portable_git()` — never inline this check. |
 
 ---
 
@@ -150,7 +157,7 @@ with GitSSHManager(repo_path=..., ssh_key_path=...) as mgr:
 
 A full demo script that walks through the following steps:
 
-1. **Startup checks** — Validates user name (auto-detects OS login via `effective_user_name`), checks Git availability (offers auto-download of PortableGit with terminal progress bar), then prints current settings
+1. **Startup checks** — Validates user name (auto-detects OS login via `effective_user_name`), auto-downloads PortableGit if not installed (with terminal progress bar and marker file validation), then prints current settings
 2. **Gerrit ls-projects** — Lists all projects on the Gerrit server (with permission-based filtering)
 3. **Clone** — Clones a specified project locally
 4. **Fetch / Pull** — Fetches and pulls remote updates
@@ -181,7 +188,7 @@ APP_INIT_MAP: dict[str, str] = {
 
 **Workflow:**
 
-1. Validates user name and Git availability (same as `example.py`)
+1. Validates user name and auto-downloads PortableGit if needed (same as `example.py`)
 2. Validates all source files in `APP_INIT_MAP` exist
 3. Lists and filters Gerrit projects (prefix-based + admin filtering)
 4. For each project: clones (if needed), pulls latest, checks each app folder
