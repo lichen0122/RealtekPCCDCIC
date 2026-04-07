@@ -15,6 +15,10 @@ git_ctrl/
 ├── app_settings.py       # Application settings (user, SSH key, Git path, etc.)
 ├── git_ssh_manager.py    # GitSSHManager core class
 ├── example.py            # Usage example / demo script
+├── project_init.py       # Batch-initialize app folders across all Gerrit projects
+├── example_file/         # Source example files for project_init.py
+│   └── Register_Editor/
+│       └── example.json
 ├── tools/
 │   └── encode_ssh_key.py # SSH key compression & encoding utility
 ├── pyproject.toml
@@ -153,6 +157,39 @@ A full demo script that walks through the following steps:
 
 ```bash
 python example.py
+```
+
+---
+
+### project_init.py
+
+Batch-initializes app folders (e.g. `Register_Editor/`) across all filtered Gerrit projects. For each project, it checks whether certain folders exist; if not, it creates them and places an example file (or `.gitkeep`) inside.
+
+**Configuration:**
+
+The `APP_INIT_MAP` dict at the top of the file controls which folders to create and what example file to place inside:
+
+```python
+APP_INIT_MAP: dict[str, str] = {
+    "Register_Editor": "example_file/Register_Editor/example.json",
+    # Add more entries as needed. Empty string value means use .gitkeep.
+}
+```
+
+- Keys = folder names to create inside each project repo
+- Values = relative path (from `git_ctrl/`) to the source example file; empty string places a `.gitkeep` instead
+
+**Workflow:**
+
+1. Validates user name and Git availability (same as `example.py`)
+2. Validates all source files in `APP_INIT_MAP` exist
+3. Lists and filters Gerrit projects (prefix-based + admin filtering)
+4. For each project: clones (if needed), pulls latest, checks each app folder
+5. Prints a grouped summary of all pending file additions
+6. Prompts `y/N` — only commits and pushes on user confirmation (one commit per project)
+
+```bash
+python project_init.py
 ```
 
 ---

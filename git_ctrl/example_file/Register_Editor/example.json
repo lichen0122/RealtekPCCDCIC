@@ -1,0 +1,14 @@
+{
+    "0x1234": [
+        {
+            "Net-list Name": "input_net_list_name",
+            "Bits": "7:0",
+            "R/W": "R/W",
+            "Reset": "'h0",
+            "Byte Count": 1,
+            "Comment": "You can write comment here.\n也可以輸入中文。\n支援多行",
+            "NOTE": "",
+            "source": "MX1234"
+        }
+    ]
+}
