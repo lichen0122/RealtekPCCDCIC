@@ -15,6 +15,10 @@ APP_NAME = "Register_Editor"
 
 SETTINGS_PATH = Path.home() / ".PCDV" / APP_NAME / "settings.json"
 
+# ── PortableGit auto-download constants ─────────────────────────
+PORTABLE_GIT_DIR = Path.home() / ".PCDV" / "PortableGit"
+PORTABLE_GIT_URL = "https://storage.googleapis.com/cyvisionbot_test_2/Download/PortableGit.zip"
+
 # ── Gerrit server constants ──────────────────────────────────────
 GERRIT_HOST = "pcicdv-git.rtkbf.com"
 GERRIT_PORT = 29418
@@ -129,7 +133,6 @@ class AppSettings:
                 name = os.getlogin().strip()
             except OSError:
                 name = ""
-            name = ""
             self._os_login_cache = name  # type: ignore[misc]
         return name
 

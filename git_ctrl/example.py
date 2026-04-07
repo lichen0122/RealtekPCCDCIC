@@ -19,20 +19,117 @@ Usage:
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
+import zipfile
+from pathlib import Path
+import requests
 
 from app_settings import (
     GERRIT_HOST,
     GERRIT_PORT,
     GERRIT_USER,
     GERRIT_GIT_ROOT,
+    PORTABLE_GIT_DIR,
+    PORTABLE_GIT_URL,
     _GERRIT_HIDDEN_PROJECTS,
     _GERRIT_ADMIN_PROJECTS,
     _GERRIT_PROJECT_PREFIX,
     app_settings,
 )
 from git_ssh_manager import GitSSHManager, GitCommandError, GIT_REPO_ROOT
+
+
+# ── PortableGit auto-download ────────────────────────────────────
+
+
+def _print_progress_bar(current: int, total: int, label: str, bar_len: int = 40) -> None:
+    """Print a terminal progress bar that overwrites itself on the same line.
+
+    Args:
+        current (int): Current progress value.
+        total (int): Total value (100%).
+        label (str): Text label shown before the bar.
+        bar_len (int): Character width of the bar.
+    """
+    if total <= 0:
+        return
+    fraction = current / total
+    filled = int(bar_len * fraction)
+    bar = "█" * filled + "─" * (bar_len - filled)
+    pct = fraction * 100
+    print(f"\r  {label} [{bar}] {pct:5.1f}%", end="", flush=True)
+
+
+def download_portable_git() -> bool:
+    """Download PortableGit.zip and extract it, showing terminal progress.
+
+    Downloads from PORTABLE_GIT_URL into PORTABLE_GIT_DIR.parent/PortableGit.zip,
+    then extracts to PORTABLE_GIT_DIR.parent (the zip contains a top-level
+    PortableGit/ folder, yielding the expected layout).
+
+    Returns:
+        bool: True on success, False on error.
+    """
+    zip_path = PORTABLE_GIT_DIR.parent / "PortableGit.zip"
+    extract_dest = PORTABLE_GIT_DIR.parent  # zip contains PortableGit/ folder
+
+    # ── Phase 1: Download ──
+    print(f"\n  下載來源: {PORTABLE_GIT_URL}")
+    print(f"  儲存位置: {zip_path}\n")
+    try:
+        zip_path.parent.mkdir(parents=True, exist_ok=True)
+        with requests.get(PORTABLE_GIT_URL, stream=True, timeout=(30, 60)) as resp:
+            resp.raise_for_status()
+            total_size = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            with open(zip_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=256 * 1024):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        _print_progress_bar(downloaded, total_size, "Downloading")
+        # Finish the progress line
+        if total_size > 0:
+            _print_progress_bar(total_size, total_size, "Downloading")
+        mb = downloaded / (1024 * 1024)
+        print(f"\n  Download complete ({mb:.1f} MB)\n")
+    except Exception as e:
+        print(f"\n  [Error] 下載失敗: {e}")
+        zip_path.unlink(missing_ok=True)
+        return False
+
+    # ── Phase 2: Extract ──
+    print(f"  解壓縮到: {extract_dest}\n")
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            members = zf.namelist()
+            total_members = len(members)
+            for i, member in enumerate(members, 1):
+                zf.extract(member, extract_dest)
+                # Update progress every 200 entries to avoid excessive I/O
+                if i % 200 == 0 or i == total_members:
+                    _print_progress_bar(i, total_members, "Extracting ")
+        _print_progress_bar(total_members, total_members, "Extracting ")
+        print(f"\n  Extract complete ({total_members} files)\n")
+    except Exception as e:
+        print(f"\n  [Error] 解壓縮失敗: {e}")
+        zip_path.unlink(missing_ok=True)
+        if PORTABLE_GIT_DIR.exists():
+            shutil.rmtree(PORTABLE_GIT_DIR, ignore_errors=True)
+        return False
+
+    # ── Cleanup zip ──
+    zip_path.unlink(missing_ok=True)
+
+    # ── Verify ──
+    if not (PORTABLE_GIT_DIR / "cmd" / "git.exe").is_file():
+        print("  [Error] 解壓縮完成但找不到 cmd/git.exe，檔案可能損壞。")
+        return False
+
+    print(f"  PortableGit 已安裝至: {PORTABLE_GIT_DIR}")
+    return True
 
 
 # ── Helper functions ─────────────────────────────────────────────
@@ -134,22 +231,23 @@ def pull_changes(mgr: GitSSHManager, branch: str = "main") -> None:
 
 if __name__ == "__main__":
     # ── 0a. Check user_name ─────────────────────────────────────
-    while True:
-        name = app_settings.user_name.strip()
-        if name and "@" not in name:
-            break
-        if not name:
-            print("尚未設定使用者名稱。")
-        else:
-            print("使用者名稱不可包含 '@' 字元。")
-        name = input("請輸入使用者名稱: ").strip()
-        if name and "@" not in name:
+    # effective_user_name = os_login_name (from os.getlogin()) or saved user_name
+    # If OS login is available, no need to prompt
+    if app_settings.effective_user_name:
+        print(f"使用者名稱: {app_settings.effective_user_name}")
+        if app_settings.os_login_name:
+            print("  (自動偵測 OS 登入名稱，無需手動設定)")
+    else:
+        while True:
+            name = input("請輸入使用者名稱: ").strip()
+            if not name:
+                print("使用者名稱不可為空，請重新輸入。")
+                continue
+            if "@" in name:
+                print("使用者名稱不可包含 '@' 字元，請重新輸入。")
+                continue
             app_settings.user_name = name
             break
-        if not name:
-            print("使用者名稱不可為空，請重新輸入。")
-        else:
-            print("使用者名稱不可包含 '@' 字元，請重新輸入。")
 
     # ── 0b. Check git_available ─────────────────────────────────
     while not app_settings.git_available:
@@ -159,26 +257,46 @@ if __name__ == "__main__":
             "下載 Git for Windows/x64 Setup 進行安裝 (過程中都選預設選項)，\n"
             "成功安裝後，重啟此程式即可。\n"
             "\n"
-            "如果因權限的問題無法安裝，請下載 Git for Windows/x64 Portable，\n"
-            "解壓縮後會有一個 PortableGit 資料夾，\n"
-            "將此資料夾移動到你想要的位置後，回到這邊，輸入你的 PortableGit 資料夾即可。"
+            "如果因權限的問題無法安裝，有兩種替代方案：\n"
+            f"  1. 自動下載 PortableGit 到 {PORTABLE_GIT_DIR}\n"
+            f"     (來源: {PORTABLE_GIT_URL})\n"
+            "  2. 手動下載 Git for Windows/x64 Portable，\n"
+            "     解壓縮後輸入 PortableGit 資料夾路徑。"
         )
-        portable_path = input("\n請輸入 PortableGit 資料夾路徑 (或按 Enter 離開): ").strip()
-        if not portable_path:
+        choice = input("\n請選擇: [1] 自動下載 / [2] 手動輸入路徑 / [Enter] 離開: ").strip()
+        if not choice:
             sys.exit(0)
-        app_settings.portable_git_path = portable_path
-        if not app_settings.git_available:
-            print(f"路徑 '{portable_path}' 下找不到 cmd/git.exe，請重新輸入。")
+        if choice == "1":
+            # Check if a previous download already exists
+            if PORTABLE_GIT_DIR.exists() and (PORTABLE_GIT_DIR / "cmd" / "git.exe").is_file():
+                print(f"  已偵測到 PortableGit: {PORTABLE_GIT_DIR}")
+                app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
+                continue
+            # Download and extract
+            if download_portable_git():
+                app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
+        elif choice == "2":
+            portable_path = input("請輸入 PortableGit 資料夾路徑: ").strip()
+            if not portable_path:
+                continue
+            app_settings.portable_git_path = portable_path
+            if not app_settings.git_available:
+                print(f"路徑 '{portable_path}' 下找不到 cmd/git.exe，請重新輸入。")
 
     # ── 0c. Print settings ──────────────────────────────────────
     print("=" * 50)
     print("App Settings")
     print("=" * 50)
-    print(f'  ssh_key_path       : "{app_settings.ssh_key_path}"')
+    print(f'  os_login_name      : "{app_settings.os_login_name}"')
     print(f'  user_name          : "{app_settings.user_name}"')
+    print(f'  effective_user_name: "{app_settings.effective_user_name}"')
+    print(f'  ssh_key_path       : "{app_settings.ssh_key_path}"')
     print(f'  portable_git_path  : "{app_settings.portable_git_path}"')
+    print(f'  PORTABLE_GIT_DIR   : "{PORTABLE_GIT_DIR}"')
+    print(f'  git_executable     : "{app_settings.git_executable}"')
     print(f'  git_available      : {app_settings.git_available}')
     print(f'  is_admin           : {app_settings.is_admin}')
+    print(f'  is_setup_complete  : {app_settings.is_setup_complete}')
     print(f'  using_embedded_key : {app_settings.using_embedded_key}')
     print()
 

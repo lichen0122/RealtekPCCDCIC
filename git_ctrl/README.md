@@ -1,11 +1,12 @@
 # git_ctrl
 
-A Python module for managing a Gerrit Git server over SSH. Zero third-party dependencies — all Git operations are executed via `subprocess` calling the git CLI directly.
+A Python module for managing a Gerrit Git server over SSH. All Git operations are executed via `subprocess` calling the git CLI directly.
 
 ## Requirements
 
 - Python 3.12+
-- Git CLI (system PATH or PortableGit)
+- Git CLI (system PATH or PortableGit — auto-download available)
+- `requests` (for PortableGit auto-download in `example.py`)
 
 ## File Structure
 
@@ -60,6 +61,8 @@ Manages global application settings. The settings file is stored at `~/.PCDV/Reg
 | `GERRIT_HOST` | `pcicdv-git.rtkbf.com` |
 | `GERRIT_PORT` | `29418` |
 | `GERRIT_GIT_ROOT` | `ssh://cychang@pcicdv-git.rtkbf.com:29418` |
+| `PORTABLE_GIT_DIR` | `~/.PCDV/PortableGit` (auto-download target directory) |
+| `PORTABLE_GIT_URL` | GCS URL for PortableGit.zip (~160 MB) |
 
 ---
 
@@ -143,7 +146,7 @@ with GitSSHManager(repo_path=..., ssh_key_path=...) as mgr:
 
 A full demo script that walks through the following steps:
 
-1. **Startup checks** — Validates `user_name` and `git_available`, then prints current settings
+1. **Startup checks** — Validates user name (auto-detects OS login via `effective_user_name`), checks Git availability (offers auto-download of PortableGit with terminal progress bar), then prints current settings
 2. **Gerrit ls-projects** — Lists all projects on the Gerrit server (with permission-based filtering)
 3. **Clone** — Clones a specified project locally
 4. **Fetch / Pull** — Fetches and pulls remote updates
