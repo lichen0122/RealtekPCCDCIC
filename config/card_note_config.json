@@ -201,5 +201,13 @@
         "Coverage",
         "UVM_ENV",
         "Verification"
+    ],
+    "ALC1605_RL7130": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
     ]
 }
