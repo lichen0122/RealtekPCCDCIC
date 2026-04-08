@@ -10,11 +10,7 @@ import zlib
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from git_ssh_manager import (
-    PORTABLE_GIT_DIR,
-    PORTABLE_GIT_MARKER,
-    is_portable_git_valid,
-)
+from git_ssh_manager import PORTABLE_GIT_DIR, GitSSHManager
 
 APP_NAME = "Register_Editor"
 
@@ -127,7 +123,7 @@ class AppSettings:
         """
         if not self.portable_git_path:
             return False
-        return is_portable_git_valid(Path(self.portable_git_path))
+        return GitSSHManager.is_portable_git_valid(Path(self.portable_git_path))
 
     @property
     def font_pixel_size(self) -> int:
@@ -223,7 +219,7 @@ class AppSettings:
         # ── value checks ──
         # portable_git_path: must contain cmd/git.exe, usr/bin/ssh.exe, and marker
         if self.portable_git_path:
-            if not is_portable_git_valid(Path(self.portable_git_path)):
+            if not GitSSHManager.is_portable_git_valid(Path(self.portable_git_path)):
                 self.portable_git_path = ""
                 dirty = True
 

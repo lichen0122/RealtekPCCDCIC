@@ -35,7 +35,7 @@ from app_settings import (
 )
 from git_ssh_manager import (
     GitSSHManager, GitCommandError, GIT_REPO_ROOT,
-    PORTABLE_GIT_DIR, ensure_portable_git,
+    PORTABLE_GIT_DIR,
 )
 
 
@@ -158,7 +158,7 @@ if __name__ == "__main__":
 
     # ── 0b. Auto-setup PortableGit ────────────────────────────────
     if not app_settings.git_available:
-        if not ensure_portable_git(verbose=True):
+        if not GitSSHManager.ensure_portable_git(verbose=True):
             print("  [Error] PortableGit 安裝失敗，程式結束。")
             sys.exit(1)
         app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
