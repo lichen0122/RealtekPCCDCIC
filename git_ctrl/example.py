@@ -179,9 +179,9 @@ if __name__ == "__main__":
     print(f'  using_embedded_key : {app_settings.using_embedded_key}')
     print()
 
-    question = input("存檔後真的會去覆蓋 Register_Editor 的設定檔，可能會影響到真的 Tool 的設定檔，請謹慎使用！\n是否要存檔覆蓋設定？(y/N): ").strip().lower()
+    question = input("存檔後真的會去覆蓋 RegisterEditor 的設定檔，可能會影響到真的 Tool 的設定檔，請謹慎使用！\n是否要存檔覆蓋設定？(y/N): ").strip().lower()
     if question == "y":
-        app_settings.save()  # 這個存檔後真的會去覆蓋 Register_Editor 的設定檔，可能會影響到真的 Tool 的設定檔，請謹慎使用
+        app_settings.save()  # 這個存檔後真的會去覆蓋 RegisterEditor 的設定檔，可能會影響到真的 Tool 的設定檔，請謹慎使用
 
     # ── 1. List Gerrit projects ──────────────────────────────────
     print("=" * 50)

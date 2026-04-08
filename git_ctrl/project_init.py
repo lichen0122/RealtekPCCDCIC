@@ -1,9 +1,9 @@
-"""project_init.py - Initialize app folders across all Gerrit projects.
+"""project_init.py - Initialize files across all Gerrit projects.
 
-For each filtered Gerrit project, ensures that certain app_name folders
-exist. If a folder is missing, it is created and populated with an
-example file (or .gitkeep). Changes are batched, summarized, and only
-committed+pushed after user confirmation.
+For each filtered Gerrit project, ensures that certain init files
+exist in the repo root. If a file is missing, it is copied from
+the example source (or a .gitkeep is created). Changes are batched,
+summarized, and only committed+pushed after user confirmation.
 
 Usage:
     python project_init.py
@@ -17,9 +17,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app_settings import (
-    PORTABLE_GIT_DIR,
-    PORTABLE_GIT_MARKER,
-    _is_portable_git_valid,
     _GERRIT_ADMIN_PROJECTS,
     _GERRIT_HIDDEN_PROJECTS,
     _GERRIT_PROJECT_PREFIX,
@@ -28,7 +25,6 @@ from app_settings import (
 from example import (
     clone_project,
     create_manager,
-    download_portable_git,
     list_gerrit_projects,
     pull_changes,
 )
@@ -39,12 +35,14 @@ from git_ssh_manager import GitCommandError, GitSSHManager
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
-# Keys   = folder names to create inside each project repo
-# Values = relative path (from SCRIPT_DIR) to the source example file
-#          empty string → place a .gitkeep instead
-APP_INIT_MAP: dict[str, str] = {
-    "Register_Editor": "example_file/Register_Editor/example.json",
-}
+# Relative paths (from SCRIPT_DIR) to source example files.
+# Each file will be copied into the repo root.
+# Empty string → place a .gitkeep instead.
+INIT_FILES: list[str] = [
+    "example_file/RegisterEditor/example.json",
+]
+
+_GITKEEP = ".gitkeep"
 
 
 # ── Data ────────────────────────────────────────────────────────
@@ -55,7 +53,6 @@ class PendingChange:
     """Tracks a pending file addition for a single project."""
 
     project_name: str
-    app_name: str
     target_path: Path
     source_path: Path | None  # None means .gitkeep was used
     mgr: GitSSHManager
@@ -92,35 +89,32 @@ def resolve_source_file(relative_path: str) -> Path | None:
     return source
 
 
-def ensure_app_folder(
+def ensure_init_file(
     mgr: GitSSHManager,
     project_name: str,
-    app_name: str,
     source_file: Path | None,
 ) -> PendingChange | None:
-    """Check if app_name folder exists in repo. If not, create it and place the example file.
+    """Ensure an init file exists in the repo root.
 
-    Returns a PendingChange if a new file was created, None if the folder already exists.
+    Returns a PendingChange if a new file was created, None if it already exists.
     """
-    app_dir = mgr.repo_path / app_name
-    if app_dir.exists():
-        print(f"    [SKIP] {project_name}/{app_name}/ already exists")
+    if source_file is not None:
+        dest_file = mgr.repo_path / source_file.name
+    else:
+        dest_file = mgr.repo_path / _GITKEEP
+
+    if dest_file.exists():
+        print(f"    [SKIP] {project_name}/{dest_file.name} already exists")
         return None
 
-    app_dir.mkdir(parents=True, exist_ok=True)
-
     if source_file is not None:
-        dest_file = app_dir / source_file.name
         shutil.copy2(source_file, dest_file)
-        print(f"    [ADD]  {project_name}/{app_name}/{source_file.name}")
     else:
-        dest_file = app_dir / ".gitkeep"
         dest_file.touch()
-        print(f"    [ADD]  {project_name}/{app_name}/.gitkeep")
+    print(f"    [ADD]  {project_name}/{dest_file.name}")
 
     return PendingChange(
         project_name=project_name,
-        app_name=app_name,
         target_path=dest_file,
         source_path=source_file,
         mgr=mgr,
@@ -134,13 +128,11 @@ def _group_by_project(changes: list[PendingChange]) -> dict[str, list[PendingCha
     return by_project
 
 
-def print_summary(changes: list[PendingChange]) -> None:
+def print_summary(by_project: dict[str, list[PendingChange]], total: int) -> None:
     """Print a summary of all files to be committed and pushed."""
     print("\n" + "=" * 60)
     print("Summary of pending changes")
     print("=" * 60)
-
-    by_project = _group_by_project(changes)
 
     for proj, proj_changes in by_project.items():
         print(f"\n  Project: {proj}")
@@ -148,23 +140,21 @@ def print_summary(changes: list[PendingChange]) -> None:
             rel_path = c.target_path.relative_to(c.mgr.repo_path)
             print(f"    + {rel_path}")
 
-    print(f"\n  Total: {len(changes)} file(s) across {len(by_project)} project(s)")
+    print(f"\n  Total: {total} file(s) across {len(by_project)} project(s)")
     print("=" * 60)
 
 
-def commit_and_push_changes(changes: list[PendingChange]) -> None:
+def commit_and_push_changes(by_project: dict[str, list[PendingChange]]) -> None:
     """Stage, commit, and push all pending changes, grouped by project."""
-    by_project = _group_by_project(changes)
-
     for proj, proj_changes in by_project.items():
         mgr = proj_changes[0].mgr
         branch = proj_changes[0].branch
-        app_names = ", ".join(c.app_name for c in proj_changes)
-
         try:
             rel_paths = [str(c.target_path.relative_to(mgr.repo_path)) for c in proj_changes]
             mgr.add(*rel_paths)
-            commit_message = f"Initialize app folder(s): {app_names}"
+            file_names = ", ".join(c.target_path.name for c in proj_changes)
+            commit_message = f"Initialize project file(s): {file_names}"
+            print(f"\n  [COMMIT] {proj}: {commit_message}")
             mgr.commit(commit_message)
             print(f"  Committed: {mgr.last_commit}")
             mgr.push(branch=branch, set_upstream=True)
@@ -193,35 +183,22 @@ if __name__ == "__main__":
             break
 
     # ── 0b. Auto-setup PortableGit ────────────────────────────────
-    if not app_settings.git_available:
-        # Fully valid installation — just reuse it
-        if _is_portable_git_valid(PORTABLE_GIT_DIR):
-            app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
-            app_settings.save()
-            print(f"  PortableGit already exists: {PORTABLE_GIT_DIR}")
-        else:
-            # Incomplete or corrupt — wipe and re-download
-            if PORTABLE_GIT_DIR.exists():
-                shutil.rmtree(PORTABLE_GIT_DIR, ignore_errors=True)
-            if not download_portable_git():
-                print("  [Error] PortableGit installation failed, exiting.")
-                sys.exit(1)
-            # Mark installation as complete
-            PORTABLE_GIT_MARKER.touch()
-            app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
-            app_settings.save()
+    if not GitSSHManager.is_portable_git_valid():
+        if not GitSSHManager.ensure_portable_git(verbose=True):
+            print("  [Error] PortableGit 安裝失敗，程式結束。")
+            sys.exit(1)
 
-    # ── 1. Validate APP_INIT_MAP source files ───────────────────
+    # ── 1. Validate INIT_FILES source files ──────────────────────
     print("=" * 50)
-    print("Validating APP_INIT_MAP source files...")
+    print("Validating INIT_FILES source files...")
     print("=" * 50)
-    source_files: dict[str, Path | None] = {}
-    for app_name, rel_path in APP_INIT_MAP.items():
+    source_files: list[Path | None] = []
+    for rel_path in INIT_FILES:
         try:
             src = resolve_source_file(rel_path)
-            source_files[app_name] = src
-            label = str(src) if src else ".gitkeep"
-            print(f"  {app_name} -> {label}")
+            source_files.append(src)
+            label = str(src) if src else _GITKEEP
+            print(f"  {label}")
         except FileNotFoundError as e:
             print(f"  [FATAL] {e}")
             sys.exit(1)
@@ -240,9 +217,9 @@ if __name__ == "__main__":
     for p in projects:
         print(f"  {p}")
 
-    # ── 3. Clone/pull each project, check folders ───────────────
+    # ── 3. Clone/pull each project, check init files ─────────────
     print("\n" + "=" * 50)
-    print("Scanning projects for missing app folders...")
+    print("Scanning projects for missing init files...")
     print("=" * 50)
     all_pending: list[PendingChange] = []
 
@@ -259,8 +236,8 @@ if __name__ == "__main__":
                 branch = "master"
                 print(f"    [WARN] Pull failed (may be empty repo), continuing...")
 
-            for app_name, source_file in source_files.items():
-                change = ensure_app_folder(mgr, project_name, app_name, source_file)
+            for source_file in source_files:
+                change = ensure_init_file(mgr, project_name, source_file)
                 if change is not None:
                     change.branch = branch
                     all_pending.append(change)
@@ -271,10 +248,11 @@ if __name__ == "__main__":
 
     # ── 4. Summary and confirmation ─────────────────────────────
     if not all_pending:
-        print("\nNo changes needed. All app folders already exist.")
+        print("\nNo changes needed. All init files already exist.")
         sys.exit(0)
 
-    print_summary(all_pending)
+    by_project = _group_by_project(all_pending)
+    print_summary(by_project, len(all_pending))
 
     answer = input("\nProceed with commit and push? (y/N): ").strip().lower()
     if answer != "y":
@@ -283,6 +261,6 @@ if __name__ == "__main__":
 
     # ── 5. Commit and push ──────────────────────────────────────
     print("\nCommitting and pushing changes...")
-    commit_and_push_changes(all_pending)
+    commit_and_push_changes(by_project)
 
     print("\nDone!")

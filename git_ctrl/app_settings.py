@@ -12,7 +12,7 @@ from pathlib import Path
 
 from git_ssh_manager import PORTABLE_GIT_DIR, GitSSHManager
 
-APP_NAME = "Register_Editor"
+APP_NAME = "RegisterEditor"
 
 SETTINGS_PATH = Path.home() / ".PCDV" / APP_NAME / "settings.json"
 
@@ -24,9 +24,9 @@ GERRIT_GIT_ROOT = f"ssh://{GERRIT_USER}@{GERRIT_HOST}:{GERRIT_PORT}"
 # Projects hidden from the browse list (Gerrit internals)
 _GERRIT_HIDDEN_PROJECTS = {"All-Projects", "All-Users"}
 # Projects visible only to admin users
-_GERRIT_ADMIN_PROJECTS = {"test_0", "test_1"}
-# Only projects whose name starts with this prefix are shown (admin users also see _GERRIT_ADMIN_PROJECTS)
-_GERRIT_PROJECT_PREFIX = "ALC"
+_GERRIT_ADMIN_PROJECTS = {f"{APP_NAME}_Test_Project"}
+# Only projects whose name starts with this prefix are shown
+_GERRIT_PROJECT_PREFIX = f"{APP_NAME}_"
 
 # SSH key: zlib-compressed then hex-encoded — not plaintext in the compiled binary
 _EMBEDDED_KEY = (
@@ -87,7 +87,7 @@ class AppSettings:
     user_name: str = ""
     # Font size preset: "Small" (13px), "Medium" (15px), "Large" (17px)
     font_size_str: str = "Medium"
-    # History tab: only show commits that touch the Register_Editor folder
+    # History tab: only show commits that touch the RegisterEditor folder
     history_editor_only: bool = False
 
     @property
