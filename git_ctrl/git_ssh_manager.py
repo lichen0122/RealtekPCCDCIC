@@ -148,7 +148,7 @@ class GitSSHManager:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def is_portable_git_valid(base: Path) -> bool:
+    def is_portable_git_valid(base: Path = PORTABLE_GIT_DIR) -> bool:
         """Check whether *base* contains a complete PortableGit installation.
 
         Validates the presence of ``cmd/git.exe``, ``usr/bin/ssh.exe``, and the

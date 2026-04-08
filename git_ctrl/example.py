@@ -111,7 +111,8 @@ def add_files(mgr: GitSSHManager) -> None:
 
 def commit_changes(mgr: GitSSHManager, message: str) -> None:
     """Commit staged changes."""
-    mgr.commit(message)
+    full_msg = f"{message}\n\nCommitted by {app_settings.effective_user_name}"
+    mgr.commit(full_msg)
     print(f"  Committed: {mgr.last_commit}")
 
 
@@ -157,12 +158,10 @@ if __name__ == "__main__":
             break
 
     # ── 0b. Auto-setup PortableGit ────────────────────────────────
-    if not app_settings.git_available:
+    if not GitSSHManager.is_portable_git_valid():
         if not GitSSHManager.ensure_portable_git(verbose=True):
             print("  [Error] PortableGit 安裝失敗，程式結束。")
             sys.exit(1)
-        app_settings.portable_git_path = str(PORTABLE_GIT_DIR)
-        app_settings.save()
 
     # ── 0c. Print settings ──────────────────────────────────────
     print("=" * 50)
@@ -172,7 +171,6 @@ if __name__ == "__main__":
     print(f'  user_name          : "{app_settings.user_name}"')
     print(f'  effective_user_name: "{app_settings.effective_user_name}"')
     print(f'  ssh_key_path       : "{app_settings.ssh_key_path}"')
-    print(f'  portable_git_path  : "{app_settings.portable_git_path}"')
     print(f'  PORTABLE_GIT_DIR   : "{PORTABLE_GIT_DIR}"')
     print(f'  git_executable     : "{app_settings.git_executable}"')
     print(f'  git_available      : {app_settings.git_available}')

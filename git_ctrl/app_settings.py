@@ -85,8 +85,6 @@ class AppSettings:
     window_geometry: str = ""
     # User name displayed in the status bar
     user_name: str = ""
-    # Root path of a PortableGit folder (leave empty to use system PATH git)
-    portable_git_path: str = ""
     # Font size preset: "Small" (13px), "Medium" (15px), "Large" (17px)
     font_size_str: str = "Medium"
     # History tab: only show commits that touch the Register_Editor folder
@@ -99,8 +97,6 @@ class AppSettings:
         Returns:
             str: Absolute path to git.exe.
         """
-        if self.portable_git_path:
-            return str(Path(self.portable_git_path) / "cmd" / "git.exe")
         return str(PORTABLE_GIT_DIR / "cmd" / "git.exe")
 
     @property
@@ -110,8 +106,6 @@ class AppSettings:
         Returns:
             str: Absolute path to ssh.exe.
         """
-        if self.portable_git_path:
-            return str(Path(self.portable_git_path) / "usr" / "bin" / "ssh.exe")
         return str(PORTABLE_GIT_DIR / "usr" / "bin" / "ssh.exe")
 
     @property
@@ -121,9 +115,7 @@ class AppSettings:
         Returns:
             bool: Whether PortableGit is ready to use.
         """
-        if not self.portable_git_path:
-            return False
-        return GitSSHManager.is_portable_git_valid(Path(self.portable_git_path))
+        return GitSSHManager.is_portable_git_valid()
 
     @property
     def font_pixel_size(self) -> int:
@@ -206,9 +198,6 @@ class AppSettings:
         if not isinstance(self.user_name, str):
             self.user_name = ""
             dirty = True
-        if not isinstance(self.portable_git_path, str):
-            self.portable_git_path = ""
-            dirty = True
         if not isinstance(self.font_size_str, str):
             self.font_size_str = "Medium"
             dirty = True
@@ -217,12 +206,6 @@ class AppSettings:
             dirty = True
 
         # ── value checks ──
-        # portable_git_path: must contain cmd/git.exe, usr/bin/ssh.exe, and marker
-        if self.portable_git_path:
-            if not GitSSHManager.is_portable_git_valid(Path(self.portable_git_path)):
-                self.portable_git_path = ""
-                dirty = True
-
         # font_size: must be a valid preset
         if self.font_size_str not in _FONT_SIZE_MAP:
             self.font_size_str = "Medium"
