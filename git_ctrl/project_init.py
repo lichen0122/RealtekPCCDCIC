@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app_settings import (
+    APP_NAME,
     _GERRIT_ADMIN_PROJECTS,
     _GERRIT_HIDDEN_PROJECTS,
     _GERRIT_PROJECT_PREFIX,
@@ -39,7 +40,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 # Each file will be copied into the repo root.
 # Empty string → place a .gitkeep instead.
 INIT_FILES: list[str] = [
-    "example_file/RegisterEditor/example.json",
+    f"example_file/{APP_NAME}/example.json",
 ]
 
 _GITKEEP = ".gitkeep"
@@ -68,9 +69,12 @@ def filter_projects(projects: list[str]) -> list[str]:
     for name in projects:
         if not name or name in _GERRIT_HIDDEN_PROJECTS:
             continue
+        # Admin-only projects: visible only to admin users
+        if name in _GERRIT_ADMIN_PROJECTS:
+            if app_settings.is_admin:
+                filtered.append(name)
+            continue
         if name.startswith(_GERRIT_PROJECT_PREFIX):
-            filtered.append(name)
-        elif app_settings.is_admin and name in _GERRIT_ADMIN_PROJECTS:
             filtered.append(name)
     return filtered
 
@@ -217,6 +221,11 @@ if __name__ == "__main__":
     for p in projects:
         print(f"  {p}")
 
+    answer = input("\nContinue with these projects? (y/N): ").strip().lower()
+    if answer != "y":
+        print("Aborted by user.")
+        sys.exit(0)
+
     # ── 3. Clone/pull each project, check init files ─────────────
     print("\n" + "=" * 50)
     print("Scanning projects for missing init files...")
@@ -233,8 +242,8 @@ if __name__ == "__main__":
                 branch = mgr.current_branch
                 pull_changes(mgr, branch=branch)
             except GitCommandError:
-                branch = "master"
-                print(f"    [WARN] Pull failed (may be empty repo), continuing...")
+                print(f"    [WARN] Pull failed for {project_name}, cannot add example file(s). Skipping.")
+                continue
 
             for source_file in source_files:
                 change = ensure_init_file(mgr, project_name, source_file)

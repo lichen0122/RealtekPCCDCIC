@@ -17,7 +17,7 @@ git_ctrl/
 ├── example.py            # Usage example / demo script
 ├── project_init.py       # Batch-initialize app folders across all Gerrit projects
 ├── example_file/         # Source example files for project_init.py
-│   └── Register_Editor/
+│   └── RegisterEditor/
 │       └── example.json
 ├── tools/
 │   └── encode_ssh_key.py # SSH key compression & encoding utility
@@ -29,7 +29,7 @@ git_ctrl/
 
 ### app_settings.py
 
-Manages global application settings. The settings file is stored at `~/.PCDV/Register_Editor/settings.json`.
+Manages global application settings. The settings file is stored at `~/.PCDV/RegisterEditor/settings.json`.
 
 **Settings Fields:**
 
@@ -41,7 +41,7 @@ Manages global application settings. The settings file is stored at `~/.PCDV/Reg
 | `fetch_on_page_switch` | `bool` | Whether to auto-fetch on page switch |
 | `remind_to_upload` | `bool` | Show a reminder to commit & upload after save |
 | `font_size_str` | `str` | Font size preset (`Small` / `Medium` / `Large`) |
-| `history_editor_only` | `bool` | Only show commits that touch the Register_Editor folder |
+| `history_editor_only` | `bool` | Only show commits that touch the RegisterEditor folder |
 | `window_geometry` | `str` | Window geometry (base64-encoded) |
 
 **Computed Properties:**
@@ -170,30 +170,30 @@ python example.py
 
 ### project_init.py
 
-Batch-initializes app folders (e.g. `Register_Editor/`) across all filtered Gerrit projects. For each project, it checks whether certain folders exist; if not, it creates them and places an example file (or `.gitkeep`) inside.
+Batch-initializes example files across all filtered Gerrit projects. For each project, it checks whether certain files exist in the repo root; if missing, copies them from example sources (or creates a `.gitkeep`).
 
 **Configuration:**
 
-The `APP_INIT_MAP` dict at the top of the file controls which folders to create and what example file to place inside:
+The `INIT_FILES` list at the top of the file controls which files to initialize:
 
 ```python
-APP_INIT_MAP: dict[str, str] = {
-    "Register_Editor": "example_file/Register_Editor/example.json",
-    # Add more entries as needed. Empty string value means use .gitkeep.
-}
+INIT_FILES: list[str] = [
+    f"example_file/{APP_NAME}/example.json",
+]
 ```
 
-- Keys = folder names to create inside each project repo
-- Values = relative path (from `git_ctrl/`) to the source example file; empty string places a `.gitkeep` instead
+- Each entry is a relative path (from `git_ctrl/`) to a source example file to copy into the repo root
+- An empty string entry places a `.gitkeep` instead
 
 **Workflow:**
 
 1. Validates user name and auto-downloads PortableGit if needed (same as `example.py`)
-2. Validates all source files in `APP_INIT_MAP` exist
+2. Validates all source files in `INIT_FILES` exist
 3. Lists and filters Gerrit projects (prefix-based + admin filtering)
-4. For each project: clones (if needed), pulls latest, checks each app folder
-5. Prints a grouped summary of all pending file additions
-6. Prompts `y/N` — only commits and pushes on user confirmation (one commit per project)
+4. Prompts user to confirm the filtered project list before proceeding
+5. For each project: clones (if needed), pulls latest, checks each init file (skips the project if pull fails)
+6. Prints a grouped summary of all pending file additions
+7. Prompts `y/N` — only commits and pushes on user confirmation (one commit per project)
 
 ```bash
 python project_init.py

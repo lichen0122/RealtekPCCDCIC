@@ -197,9 +197,12 @@ if __name__ == "__main__":
         for fp in projects:
             if not fp or fp in _GERRIT_HIDDEN_PROJECTS:
                 continue
+            # Admin-only projects: visible only to admin users
+            if fp in _GERRIT_ADMIN_PROJECTS:
+                if app_settings.is_admin:
+                    print(f"  {fp}")
+                continue
             if fp.startswith(_GERRIT_PROJECT_PREFIX):
-                print(f"  {fp}")
-            elif app_settings.is_admin and fp in _GERRIT_ADMIN_PROJECTS:
                 print(f"  {fp}")
     else:
         print("No projects found or error occurred.\n")
