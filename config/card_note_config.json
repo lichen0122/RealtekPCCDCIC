@@ -41,7 +41,8 @@
         "RomCode Convertion",
         "Analog Port Check",
         "Regif Auto-refine",
-        "RegisterEditor"
+        "RegisterEditor",
+        "GateLevelDesign"
     ],
     "AI_Task_Force": [
         "Work Record",
