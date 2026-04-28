@@ -11,6 +11,7 @@
 	"AudioDataPath - SD":                               "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPathCheck/audio_data_path_check_version.json",
 	"AudioDataPath - DV Path":                          "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPath/audio_data_path_version.json",
 	"AudioDataPath - DV Phase":                         "https://storage.googleapis.com/cyvisionbot_test_2/Audio_Data_Phase/version_ctrl/version_RTK.json",
+	"AudioDataPath - Visio To GateJson":                "https://storage.googleapis.com/realtek-pccdcic-dv/AudioDataPathVisioToGateJson/audio_data_path_visio_to_gatejson_version.json",
 	"AudioDataPath - Visio Tracer":                     "https://storage.googleapis.com/cyvisionbot_test_2/visio_debug/version_ctrl/version_RTK.json",
 	"ROM Code Convertion":                              "https://storage.googleapis.com/realtek-pccdcic-dv/RomCodeConvertion/rom_code_convertion_version.json",
 	"ManPower - CardNote":                              "https://storage.googleapis.com/realtek-pccdcic-dv/CardNote/card_note_version.json",
