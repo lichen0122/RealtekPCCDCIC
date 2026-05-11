@@ -42,7 +42,8 @@
         "Analog Port Check",
         "Regif Auto-refine",
         "RegisterEditor",
-        "GateLevelDesign"
+        "GateLevelDesign",
+        "WaveJsonDesign"
     ],
     "AI_Task_Force": [
         "Work Record",
