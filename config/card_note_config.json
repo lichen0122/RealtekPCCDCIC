@@ -229,5 +229,13 @@
         "Coverage",
         "IP Verification",
         "Sys. Verification"
+    ],
+    "RTS5856R_RL7140": [
+        "UVM_ENV",
+        "CMODEL",
+        "Register",
+        "Coverage",
+        "IP Verification",
+        "Sys. Verification"
     ]
 }
