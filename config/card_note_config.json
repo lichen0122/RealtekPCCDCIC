@@ -49,7 +49,9 @@
     ],
     "AI_Task_Force": [
         "Work Record",
-        "AI Agent Flow"
+        "AI Agent Flow",
+        "Spec_Register",
+        "DD_Font_End"
     ],
     "RTS5881": [
         "ISP DV"
