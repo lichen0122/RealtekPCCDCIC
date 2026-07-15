@@ -26,9 +26,9 @@
 | 項目 | 值 |
 |------|----|
 | 檔名 | `WebUtility.exe` |
-| 版本 (version.json) | `v20260715.2` |
-| 檔案大小 | `49,246,720` bytes |
-| **SHA-256** | `46beb5fa7bdcb3a84af622516e6598bd6837a0c5d181bfdf52101974d379398e` |
+| 版本 (version.json) | `v20260715.3` |
+| 檔案大小 | `49,261,056` bytes |
+| **SHA-256** | `b9445e9dc60c36bf9f9c43258bff596de8102f9bcdced0997c058bedd5c9eeee` |
 | 打包方式 | Nuitka `--mode=onefile` (Python 3.12) |
 | 數位簽章 | 目前**尚未簽章** (取得 code-signing 憑證後將簽章,屆時可改用簽發者排除) |
 | 發佈來源 | `https://storage.googleapis.com/realtek-pccdcic-dv/WebUtility/WebUtility.zip` (Realtek GCS) |
@@ -73,7 +73,7 @@
 
 1. **標記為 False Positive**(在 Console 對該 Threat 選 *Mark as false positive*),並建立排除。
 2. **依 SHA-256 排除**(對應本版 build):
-   `46beb5fa7bdcb3a84af622516e6598bd6837a0c5d181bfdf52101974d379398e`
+   `b9445e9dc60c36bf9f9c43258bff596de8102f9bcdced0997c058bedd5c9eeee`
    *(缺點:每次改版 hash 變動,需重新加入。)*
 3. **依路徑排除**(涵蓋所有版本,較耐用)。以下兩個目錄是程式**固定**會用到的:
    - onefile 執行期解壓/快取目錄:`%LOCALAPPDATA%\Realtek\WebUtility\`
