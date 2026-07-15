@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import queue
+import re
 import secrets
 import subprocess
 import sys
@@ -52,6 +53,9 @@ SETTING_URL = 'https://raw.github.com/lichen0122/RealtekPCCDCIC/main/dv_util_res
 
 # web UI 單檔:agent 啟動時從 GCS 抓取(遠端→快取→bundled),不需重建 exe 即可更新 UI。
 WEB_UI_URL = 'https://storage.googleapis.com/realtek-pccdcic-dv/WebUtility/index.html'
+
+# 已發佈的 exe 版本 manifest(upload_to_gcs.py 上傳的 publish_version.json)。用於「檢查更新」。
+PUBLISH_VERSION_URL = 'https://storage.googleapis.com/realtek-pccdcic-dv/WebUtility/version.json'
 
 _CONNECT_TIMEOUT = 15
 _READ_TIMEOUT    = 60
@@ -164,6 +168,22 @@ def load_web_ui_html(url, cache_file, bundled_path):
     return None, 'none'
 
 
+def _parse_version_key(v):
+    """'v20260715.2' -> (2026, 7, 15, 2);無法解析回 None。"""
+    m = re.match(r'v?(\d{4})(\d{2})(\d{2})(?:\.(\d+))?$', str(v or ''))
+    if not m:
+        return None
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4) or 0))
+
+
+def is_update_available(current, latest):
+    """latest 是否比 current 新(皆為 vYYYYMMDD[.N]);任一無法解析回 False。"""
+    ck, lk = _parse_version_key(current), _parse_version_key(latest)
+    if ck is None or lk is None:
+        return False
+    return lk > ck
+
+
 # --------------------------------------------------------------------------- #
 #  Native folder dialog —— 一律在「主執行緒」執行 (Tk 不可在 worker thread 跑)。
 #  HTTP handler (worker thread) 需要選資料夾時, 把請求丟進 _dialog_q, 由 main() 的
@@ -256,6 +276,21 @@ class Agent:
         log.info('web ui: source=%s (%d bytes)',
                  self.web_ui_source, len(self.web_ui_html or ''))
         return self.web_ui_source
+
+    def check_update(self):
+        """比對 GCS 已發佈版本與本 exe 版本,供前端顯示更新提示。抓取/解析失敗則安靜回無更新。"""
+        result = {'current': self.app_version, 'latest': None,
+                  'update_available': False, 'download_url': None}
+        try:
+            r = requests.get(PUBLISH_VERSION_URL, timeout=_HTTP_TIMEOUT)
+            r.raise_for_status()
+            info = r.json()
+            result['latest'] = info.get('version')
+            result['download_url'] = info.get('zip_url')
+            result['update_available'] = is_update_available(self.app_version, result['latest'])
+        except Exception:
+            log.warning('update-check failed', exc_info=True)
+        return result
 
     def get_work_dir_list(self):
         if os.path.exists(self.work_dir_list_file):
@@ -510,6 +545,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(job or {'error': 'no such job'}, 200 if job else 404)
         elif path == '/api/processes':
             self._send_json({'processes': a.list_processes()})
+        elif path == '/api/update-check':
+            self._send_json(a.check_update())
         else:
             self._send_json({'error': 'not found'}, 404)
 

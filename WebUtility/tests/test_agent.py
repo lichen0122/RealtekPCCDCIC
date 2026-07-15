@@ -90,3 +90,21 @@ def test_all_fail_returns_none(tmp_path, monkeypatch):
 
     assert source == 'none'
     assert html is None
+
+
+def test_parse_version_key_variants():
+    assert agent._parse_version_key('v20260715') == (2026, 7, 15, 0)
+    assert agent._parse_version_key('v20260715.2') == (2026, 7, 15, 2)
+    assert agent._parse_version_key('20260715.2') == (2026, 7, 15, 2)   # 無 v 前綴亦可
+    assert agent._parse_version_key('vUNKNOWN') is None
+    assert agent._parse_version_key('') is None
+    assert agent._parse_version_key(None) is None
+
+
+def test_is_update_available():
+    assert agent.is_update_available('v20260715.1', 'v20260715.2') is True   # 流水號較新
+    assert agent.is_update_available('v20260715', 'v20260716') is True        # 日期較新
+    assert agent.is_update_available('v20260715.2', 'v20260715.2') is False   # 相等
+    assert agent.is_update_available('v20260715.2', 'v20260715.1') is False   # latest 較舊
+    assert agent.is_update_available('v20260715', 'vUNKNOWN') is False        # latest 無法解析
+    assert agent.is_update_available('vUNKNOWN', 'v20260715') is False        # current 無法解析

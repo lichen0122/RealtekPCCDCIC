@@ -57,6 +57,12 @@
   <button class="ghost" id="quitBtn">結束</button>
 </header>
 
+<div id="updateBanner" class="hidden" style="background:#0A84FF;color:#fff;padding:10px 20px;font-size:14px;line-height:1.6;">
+  🔔 有新版本 <b id="updateLatest"></b>(目前 <span id="updateCurrent"></span>)。
+  <a id="updateLink" href="#" target="_blank" rel="noopener" style="color:#fff;font-weight:600;">下載新版</a>
+  → 解壓並重新開啟新的 WebUtility.exe;若被防毒攔截,請通知 IT 放行。
+</div>
+
 <main>
   <section class="card">
     <div class="row">
@@ -201,7 +207,21 @@ window.addEventListener('beforeunload', () => {
   try { fetch('/api/quit', { method:'POST', headers:{ 'X-Auth-Token': TOKEN }, keepalive:true }); } catch (e) {}
 });
 
+// 頁面載入(含重新整理)時檢查 exe 是否有新版;有的話顯示橫幅指示使用者更新。
+async function checkUpdate() {
+  try {
+    const u = await api('/api/update-check');
+    if (!u.update_available) return;
+    $('updateLatest').textContent = u.latest || '';
+    $('updateCurrent').textContent = u.current || '';
+    if (u.download_url) $('updateLink').href = u.download_url;
+    else $('updateLink').classList.add('hidden');
+    $('updateBanner').classList.remove('hidden');
+  } catch (e) { /* 靜默:檢查失敗不打擾使用者 */ }
+}
+
 loadState().catch(e => { $('statusText').classList.remove('hidden'); alert('載入失敗: ' + e.message); });
+checkUpdate();
 setInterval(refreshProcs, 3000);
 refreshProcs();
 </script>

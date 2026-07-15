@@ -30,6 +30,9 @@ DV_Utility 的 **web UI 版本**:把介面改成瀏覽器裡的單檔 HTML,只�
   manifest 解析,不接受任意路徑。
 - 沿用 `~/PCDV` 與其 `resource/` 設定檔 → 已安裝工具、work_dir 清單、工具歷史**與 DV_Utility 共用**。
 - 關閉瀏覽器分頁後,代理數秒內自動結束(heartbeat 看門狗)。
+- **檢查更新**:頁面載入(含重新整理)時呼叫 `/api/update-check`,代理 server 端比對 GCS 已發佈版本
+  (`WebUtility/version.json`)與本 exe 版本;較新時於畫面頂端顯示橫幅,附下載連結與更新步驟。
+  偵測的是 **exe 本體新版**(需使用者手動下載/IT 部署);UI 內容更新仍是重開 exe 自動生效。
 
 ## 開發執行
 
