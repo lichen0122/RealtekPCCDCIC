@@ -10,3 +10,6 @@ requests
 
 # 開發只需 requests；打包/上傳時再視需要安裝上面被註解的套件:
 #   .venv\Scripts\python -m pip install nuitka pillow google-cloud-storage
+#
+# --- 開發測試 (tests/) ---
+#   .venv\Scripts\python -m pip install pytest
