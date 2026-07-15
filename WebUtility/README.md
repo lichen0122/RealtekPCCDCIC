@@ -78,8 +78,8 @@ DV_Utility 的金鑰(勿進版)。
 - 解壓快取:`%LOCALAPPDATA%\Realtek\WebUtility\`
 - 工作/資源:`%USERPROFILE%\PCDV\`
 
-長期:取得正式 CA 憑證簽章 → 請 IT 改用**依簽發者憑證**排除。參見
-`../DV_Utility/docs/sentinelone_false_positive_request.md`(同一套說法,把檔名換成 `WebUtility.exe`)。
+長期:取得正式 CA 憑證簽章 → 請 IT 改用**依簽發者憑證**排除。可直接轉寄給 IT 的申請說明見
+`docs/sentinelone_false_positive_request.md`(WebUtility.exe 專屬,含本版 exe 的 SHA-256 與固定路徑)。
 
 ## 檔案
 
