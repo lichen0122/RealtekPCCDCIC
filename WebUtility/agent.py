@@ -460,11 +460,10 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def _serve_index(self):
-        try:
-            with open(get_bundled_path(os.path.join('web', 'index.html')), encoding='utf-8') as f:
-                html = f.read()
-        except Exception:
-            self._send_json({'error': 'index.html not found'}, 500)
+        html = self.agent.web_ui_html
+        if not html:
+            self._send_json(
+                {'error': 'index.html not available (remote/cache/bundled all failed)'}, 500)
             return
         html = html.replace('__AGENT_TOKEN__', self.agent.token) \
                    .replace('__APP_VERSION__', self.agent.app_version)
@@ -556,6 +555,7 @@ def main():
              APP_NAME, agent.app_version, agent.install_dir)
     agent.load_catalog()
     log.info('catalog: %d tool(s)', len(agent.catalog))
+    agent.load_web_ui()
 
     Handler.agent = agent
     httpd = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
