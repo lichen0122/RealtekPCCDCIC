@@ -34,7 +34,17 @@ def upload_file(client, source_file, destination_blob):
     print('Public URL:', f'https://storage.googleapis.com/{BUCKET}/{destination_blob}')
 
 
+def _upload_if_exists(client, source_file, destination_blob):
+    if os.path.isfile(source_file):
+        upload_file(client, source_file, destination_blob)
+    else:
+        print(f'略過 (檔案不存在): {source_file}')
+
+
 if __name__ == '__main__':
     client = _client()
-    upload_file(client, os.path.join(_here, 'WebUtility.zip'), 'WebUtility/WebUtility.zip')
-    upload_file(client, os.path.join(_here, 'publish_version.json'), 'WebUtility/version.json')
+    # UI:一律上傳 —— agent 啟動時抓取,達成「不重建 exe 也能更新 UI」。
+    upload_file(client, os.path.join(_here, 'web', 'index.html'), 'WebUtility/index.html')
+    # build 產物:存在才上傳(只改 UI 時通常沒有新的 zip/publish_version.json)。
+    _upload_if_exists(client, os.path.join(_here, 'WebUtility.zip'), 'WebUtility/WebUtility.zip')
+    _upload_if_exists(client, os.path.join(_here, 'publish_version.json'), 'WebUtility/version.json')
