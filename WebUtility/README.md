@@ -6,12 +6,14 @@ DV_Utility 的 **web UI 版本**:把介面改成瀏覽器裡的單檔 HTML,只�
 ## 為什麼這樣做 / 對 SentinelOne 的意義
 
 - **UI(`web/index.html`)在瀏覽器跑,不是可執行檔** → 不會被 EDR 行為引擎誤判。
-- 拿掉了 DV_Utility 的**自我更新**(下載 exe→換檔→detached 重啟)—— 那是最強的 dropper 誘因;
-  web 版靠 reload 就是更新。
+- 拿掉了 DV_Utility 的**自我更新**(下載 exe→換檔→detached 重啟)—— 那是最強的 dropper 誘因。
+  UI(`index.html`)改由 agent 啟動時從 GCS 抓取,**重開 exe 即載入新 UI**;exe 本身仍無自我更新。
 - **但**:啟動本機工具這件事一定要有原生元件,所以還是有一支 `agent.exe`。它仍是 Nuitka
   onefile 原生檔,**一樣可能被 SentinelOne 以 "Suspicious thread" 誤判**。
   → 這顆代理仍需要 **簽章 + IT 白名單**(與 DV_Utility 同一套辦法)。
   換句話說:web 化把部分誘因拿掉、把「要簽章的東西」縮到最小,但**沒有讓誤判問題完全消失**。
+- **信任邊界**:UI 現由 GCS 經 HTTPS 提供、已移出「已簽章 exe」範圍(信任 = bucket 寫入權 + TLS);
+  打包內建的 `index.html` 僅作離線 fallback。詳見 `docs/superpowers/specs/2026-07-15-webutility-remote-html-ui-design.md`。
 
 ## 架構
 
@@ -64,9 +66,11 @@ DV_Utility 的 **web UI 版本**:把介面改成瀏覽器裡的單檔 HTML,只�
 .venv\Scripts\python upload_to_gcs.py
 ```
 
-上傳 `WebUtility.zip` 與 `version.json` 到 `gs://realtek-pccdcic-dv/WebUtility/`。
-憑證用 `GOOGLE_APPLICATION_CREDENTIALS` 或沿用 DV_Utility 的金鑰(勿進版)。
-沒有自我更新,所以上傳**不會**自動推送給既有使用者。
+上傳 `index.html`(UI)一律進行;`WebUtility.zip` 與 `version.json` 存在才上傳,皆到
+`gs://realtek-pccdcic-dv/WebUtility/`。憑證用 `GOOGLE_APPLICATION_CREDENTIALS` 或沿用
+DV_Utility 的金鑰(勿進版)。
+- **UI**:上傳 `index.html` 後,使用者**下次啟動**即生效(agent 啟動時抓取)。
+- **exe 本體**:沒有自我更新,上傳 zip **不會**自動推送給既有使用者(需重新下載 / IT 部署)。
 
 ## SentinelOne 誤判 / 排除
 
@@ -82,7 +86,7 @@ DV_Utility 的 **web UI 版本**:把介面改成瀏覽器裡的單檔 HTML,只�
 | 檔 | 說明 |
 |----|------|
 | `agent.py` | 本機 HTTP 代理(伺服 UI + 啟動/下載/程序管理 API) |
-| `web/index.html` | 單檔 web UI(HTML+CSS+JS,無 build step) |
+| `web/index.html` | 單檔 web UI(HTML+CSS+JS,無 build step);亦上傳 GCS,agent 啟動時抓取(打包版為離線 fallback) |
 | `version.json` | 版本(release 進版時寫入,一起打包) |
 | `release_web_utility.py` | Nuitka 打包 + env-gated 簽章 |
 | `upload_to_gcs.py` | 上傳 GCS |
