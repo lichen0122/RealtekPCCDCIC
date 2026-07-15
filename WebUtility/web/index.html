@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PCDV DV WebUtility</title>
+<style>
+  :root { --bg:#2B2B2B; --panel:#333; --field:#3A3A3C; --border:#48484A; --accent:#0A84FF;
+          --accent-h:#409CFF; --text:#FFF; --muted:#A0A0A0; --danger:#FF453A; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font-family:"Microsoft JhengHei","Segoe UI",system-ui,sans-serif; font-size:15px; }
+  header { display:flex; align-items:center; justify-content:space-between;
+           padding:14px 20px; border-bottom:1px solid var(--border); }
+  header h1 { font-size:17px; margin:0; font-weight:600; }
+  header .ver { color:var(--muted); font-size:13px; margin-left:8px; font-weight:400; }
+  main { display:grid; grid-template-columns:1fr 300px; gap:16px; padding:18px 20px; }
+  @media (max-width:760px){ main { grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; }
+  label { display:block; color:var(--muted); font-size:13px; margin:0 0 6px; }
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:14px; }
+  .row:last-child { margin-bottom:0; }
+  select, input[type=text] { flex:1; min-width:0; background:var(--field); color:var(--text);
+           border:1px solid var(--border); border-radius:6px; padding:8px 10px; font-size:14px; }
+  select:focus, input:focus { outline:none; border-color:var(--accent); }
+  button { background:var(--accent); color:#fff; border:none; border-radius:6px;
+           padding:8px 14px; font-size:14px; cursor:pointer; white-space:nowrap; }
+  button:hover { background:var(--accent-h); }
+  button:disabled { background:#5a5a5c; cursor:default; }
+  button.ghost { background:transparent; border:1px solid var(--border); color:var(--text); }
+  button.ghost:hover { background:#444; }
+  button.danger { background:transparent; border:1px solid var(--danger); color:var(--danger); padding:4px 10px; font-size:13px; }
+  button.danger:hover { background:rgba(255,69,58,.15); }
+  #status { margin-top:14px; }
+  progress { width:100%; height:8px; border:none; border-radius:4px; background:#48484A; }
+  progress::-webkit-progress-bar { background:#48484A; border-radius:4px; }
+  progress::-webkit-progress-value { background:var(--accent); border-radius:4px; }
+  .status-text { color:var(--muted); font-size:13px; margin-top:8px; }
+  .ver-line { font-size:13px; margin-top:8px; }
+  .note { white-space:pre-wrap; color:var(--muted); font-size:13px; margin-top:6px;
+          max-height:120px; overflow:auto; }
+  .proc { display:flex; align-items:center; justify-content:space-between; gap:8px;
+          background:var(--field); border:1px solid var(--border); border-radius:8px;
+          padding:8px 10px; margin-bottom:8px; font-size:13px; }
+  .proc .meta { min-width:0; }
+  .proc .lbl { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .proc .pid { color:var(--muted); font-size:11px; }
+  .dead .lbl { color:var(--muted); text-decoration:line-through; }
+  .empty { color:var(--muted); font-size:13px; }
+  h2 { font-size:14px; margin:0 0 12px; font-weight:600; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>PCDV DV WebUtility <span class="ver" id="ver"></span></h1>
+  <button class="ghost" id="quitBtn">結束</button>
+</header>
+
+<main>
+  <section class="card">
+    <div class="row">
+      <div style="flex:1">
+        <label>請選擇 project 路徑</label>
+        <select id="workdir"></select>
+      </div>
+      <button class="ghost" id="browseBtn" style="align-self:flex-end">選擇路徑</button>
+    </div>
+    <div class="row">
+      <div style="flex:1">
+        <label>請選擇 utility 工具</label>
+        <select id="tool"></select>
+      </div>
+      <button id="startBtn" style="align-self:flex-end">開啟程式</button>
+    </div>
+
+    <div id="status" class="hidden">
+      <progress id="bar" max="100" value="0"></progress>
+      <div class="status-text" id="statusText"></div>
+      <div class="ver-line" id="verLine"></div>
+      <div class="note" id="note"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>執行中的工具</h2>
+    <div id="procList"></div>
+    <div class="empty hidden" id="procEmpty">目前沒有由本工具啟動的程序</div>
+  </section>
+</main>
+
+<script>
+const TOKEN = "__AGENT_TOKEN__";
+document.getElementById('ver').textContent = "__APP_VERSION__";
+
+async function api(path, {method='GET', body=null} = {}) {
+  const opt = { method, headers: { 'X-Auth-Token': TOKEN } };
+  if (body != null) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+const $ = id => document.getElementById(id);
+
+function fillSelect(sel, items, current) {
+  sel.innerHTML = '';
+  for (const it of items) {
+    const o = document.createElement('option');
+    o.value = it; o.textContent = it;
+    if (it === current) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+
+async function loadState() {
+  const s = await api('/api/state');
+  fillSelect($('tool'), s.tools, s.tool_history);
+  fillSelect($('workdir'), s.work_dirs, s.work_dirs[0]);
+}
+
+$('browseBtn').onclick = async () => {
+  $('browseBtn').disabled = true;
+  try {
+    const r = await api('/api/pick-workdir', { method:'POST' });
+    if (r.path) fillSelect($('workdir'), r.work_dirs, r.path);
+  } catch (e) { alert('選擇路徑失敗: ' + e.message); }
+  finally { $('browseBtn').disabled = false; }
+};
+
+const PHASE = { checking:'檢查更新中 ...', downloading:'下載中 ...', installing:'安裝中 ...',
+                launching:'啟動程式中 ...', done:'更新完成, 程式已自動開啟', error:'失敗' };
+
+$('startBtn').onclick = async () => {
+  const tool = $('tool').value, work_dir = $('workdir').value;
+  if (!tool) { alert('請先選擇工具'); return; }
+  if (!work_dir) { alert('請先選擇 project 路徑'); return; }
+  $('startBtn').disabled = true;
+  $('status').classList.remove('hidden');
+  $('bar').value = 0; $('verLine').textContent = ''; $('note').textContent = '';
+  $('statusText').textContent = '檢查更新中 ...';
+  try {
+    const { job_id } = await api('/api/launch', { method:'POST', body:{ tool, work_dir } });
+    await pollJob(job_id);
+  } catch (e) {
+    $('statusText').textContent = '失敗: ' + e.message;
+  } finally {
+    $('startBtn').disabled = false;
+    refreshProcs();
+  }
+};
+
+function pollJob(jobId) {
+  return new Promise((resolve) => {
+    const tick = async () => {
+      let job;
+      try { job = await api('/api/job?id=' + encodeURIComponent(jobId)); }
+      catch (e) { $('statusText').textContent = '失敗: ' + e.message; return resolve(); }
+      $('statusText').textContent = PHASE[job.phase] || job.phase;
+      if (job.total > 0) { $('bar').removeAttribute('value'); $('bar').max = job.total; $('bar').value = job.downloaded; }
+      if (job.version) $('verLine').textContent = '當前版本 ' + job.version;
+      if (job.release_note) $('note').textContent = job.release_note;
+      if (job.status === 'done') { $('bar').value = $('bar').max = 100; $('bar').value = 100; return resolve(); }
+      if (job.status === 'error') { $('statusText').textContent = '失敗: ' + (job.error || ''); return resolve(); }
+      setTimeout(tick, 400);
+    };
+    tick();
+  });
+}
+
+async function refreshProcs() {
+  let procs = [];
+  try { procs = (await api('/api/processes')).processes; } catch (e) { return; }
+  const box = $('procList');
+  box.innerHTML = '';
+  $('procEmpty').classList.toggle('hidden', procs.length > 0);
+  for (const p of procs) {
+    const div = document.createElement('div');
+    div.className = 'proc' + (p.alive ? '' : ' dead');
+    const meta = document.createElement('div'); meta.className = 'meta';
+    const lbl = document.createElement('div'); lbl.className = 'lbl'; lbl.textContent = p.label; lbl.title = p.label;
+    const pid = document.createElement('div'); pid.className = 'pid';
+    pid.textContent = (p.alive ? 'PID ' + p.pid : '已結束');
+    meta.appendChild(lbl); meta.appendChild(pid);
+    const btn = document.createElement('button'); btn.className = 'danger'; btn.textContent = '關閉';
+    btn.onclick = async () => { try { await api('/api/close', { method:'POST', body:{ id:p.id } }); refreshProcs(); } catch(e){} };
+    div.appendChild(meta); div.appendChild(btn);
+    box.appendChild(div);
+  }
+}
+
+$('quitBtn').onclick = async () => {
+  try { await api('/api/quit', { method:'POST' }); } catch (e) {}
+  document.body.innerHTML = '<p style="padding:40px;color:#A0A0A0">WebUtility 已結束,可關閉此分頁。</p>';
+};
+
+// 心跳: 讓代理知道分頁還開著; 關閉分頁後代理會在數秒內自動結束。
+setInterval(() => { api('/api/heartbeat', { method:'POST' }).catch(()=>{}); }, 5000);
+window.addEventListener('beforeunload', () => {
+  try { fetch('/api/quit', { method:'POST', headers:{ 'X-Auth-Token': TOKEN }, keepalive:true }); } catch (e) {}
+});
+
+loadState().catch(e => { $('statusText').classList.remove('hidden'); alert('載入失敗: ' + e.message); });
+setInterval(refreshProcs, 3000);
+refreshProcs();
+</script>
+</body>
+</html>

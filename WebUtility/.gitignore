@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+build/
+dist/
+*.exe
+*.zip
+publish_version.json
+# GCS 服務帳戶金鑰 (勿進版)
+*.json.key
+gcs_key.json

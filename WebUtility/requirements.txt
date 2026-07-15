@@ -1,0 +1,12 @@
+# --- runtime (agent) ---
+requests
+
+# --- build / packaging (release_web_utility.py) ---
+# nuitka
+# pillow            # 由 realtek.png 產生 exe 圖示
+
+# --- upload (upload_to_gcs.py) ---
+# google-cloud-storage
+
+# 開發只需 requests；打包/上傳時再視需要安裝上面被註解的套件:
+#   .venv\Scripts\python -m pip install nuitka pillow google-cloud-storage
