@@ -130,7 +130,7 @@ def load_web_ui_html(url, cache_file, bundled_path):
     try:
         r = requests.get(url, timeout=_HTTP_TIMEOUT)
         r.raise_for_status()
-        html = r.text
+        html = r.content.decode('utf-8')   # GCS 送 text/html 無 charset;明確以 UTF-8 解碼,避免中文亂碼
         try:
             with open(cache_file, 'w', encoding='utf-8') as f:
                 f.write(html)

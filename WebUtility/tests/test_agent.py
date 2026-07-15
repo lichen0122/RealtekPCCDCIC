@@ -2,9 +2,9 @@ import agent
 
 
 class _FakeResp:
-    """模擬 requests.get 回傳物件:只需 .raise_for_status() 與 .text。"""
-    def __init__(self, text):
-        self.text = text
+    """模擬 requests.get 回傳物件:提供 .content(bytes)與 .raise_for_status()。"""
+    def __init__(self, text, encoding='utf-8'):
+        self.content = text.encode(encoding)
 
     def raise_for_status(self):
         pass
@@ -26,6 +26,21 @@ def test_remote_success_writes_cache(tmp_path, monkeypatch):
     assert source == 'remote'
     assert html == '<html>remote</html>'
     assert cache.read_text(encoding='utf-8') == '<html>remote</html>'
+
+
+def test_remote_decodes_utf8_body(tmp_path, monkeypatch):
+    cache = tmp_path / 'ui_cache.html'
+    bundled = tmp_path / 'bundled.html'
+    bundled.write_text('<html>bundled</html>', encoding='utf-8')
+    chinese = '<html>選擇 project 路徑</html>'
+    monkeypatch.setattr(agent.requests, 'get',
+                        lambda *a, **k: _FakeResp(chinese))
+
+    html, source = agent.load_web_ui_html('http://x/index.html', str(cache), str(bundled))
+
+    assert source == 'remote'
+    assert html == chinese
+    assert cache.read_text(encoding='utf-8') == chinese
 
 
 def test_remote_fail_uses_cache(tmp_path, monkeypatch):
