@@ -50,6 +50,9 @@ APP_NAME = 'WebUtility'
 # 工具清單 (與 DV_Utility 同一份): 名稱 -> 該工具的 version manifest URL。
 SETTING_URL = 'https://raw.github.com/lichen0122/RealtekPCCDCIC/main/dv_util_resource/setting.json'
 
+# web UI 單檔:agent 啟動時從 GCS 抓取(遠端→快取→bundled),不需重建 exe 即可更新 UI。
+WEB_UI_URL = 'https://storage.googleapis.com/realtek-pccdcic-dv/WebUtility/index.html'
+
 _CONNECT_TIMEOUT = 15
 _READ_TIMEOUT    = 60
 _HTTP_TIMEOUT    = (_CONNECT_TIMEOUT, _READ_TIMEOUT)
@@ -117,6 +120,43 @@ def _read_app_version():
         return 'vUNKNOWN'
 
 
+def load_web_ui_html(url, cache_file, bundled_path):
+    """解析要供應的 index.html:遠端 → 本機快取 → 打包內建。回傳 (html, source)。
+
+    source: 'remote' | 'cache' | 'bundled' | 'none'。
+    比照 Agent.load_catalog() 抓 setting.json 的三層退回;純函式以利單元測試。
+    """
+    # 1) 遠端
+    try:
+        r = requests.get(url, timeout=_HTTP_TIMEOUT)
+        r.raise_for_status()
+        html = r.text
+        try:
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                f.write(html)
+        except Exception:
+            log.exception('failed to cache index.html')
+        return html, 'remote'
+    except Exception:
+        log.warning('fetch index.html failed; falling back to cache/bundled', exc_info=True)
+
+    # 2) 本機快取
+    try:
+        with open(cache_file, encoding='utf-8') as f:
+            return f.read(), 'cache'
+    except Exception:
+        pass
+
+    # 3) 打包內建
+    try:
+        with open(bundled_path, encoding='utf-8') as f:
+            return f.read(), 'bundled'
+    except Exception:
+        log.exception('no usable index.html (remote + cache + bundled all failed)')
+
+    return None, 'none'
+
+
 # --------------------------------------------------------------------------- #
 #  Native folder dialog —— 一律在「主執行緒」執行 (Tk 不可在 worker thread 跑)。
 #  HTTP handler (worker thread) 需要選資料夾時, 把請求丟進 _dialog_q, 由 main() 的
@@ -166,6 +206,7 @@ class Agent:
         self.setting_file       = os.path.join(self.resource, 'setting.json')
         self.work_dir_list_file = os.path.join(self.resource, 'work_dir_list.json')
         self.tool_history_file  = os.path.join(self.resource, 'tool_history.json')
+        self.web_ui_cache_file  = os.path.join(self.resource, 'ui_cache.html')
 
         self.catalog = {}                       # 工具名稱 -> manifest url
         self.jobs = {}                          # job_id -> dict
@@ -175,6 +216,8 @@ class Agent:
         self._lock = threading.Lock()
         self.last_heartbeat = time.time()
         self.should_quit = False
+        self.web_ui_html = None
+        self.web_ui_source = 'none'      # remote | cache | bundled | none
 
     # -- 工具清單 / 歷史 ---------------------------------------------------- #
     def load_catalog(self):
@@ -197,6 +240,15 @@ class Agent:
                 log.exception('no usable setting.json (remote + cache both failed)')
                 self.catalog = {}
         return list(self.catalog.keys())
+
+    def load_web_ui(self):
+        """啟動時抓 web UI,結果存於 self.web_ui_html / self.web_ui_source。"""
+        bundled = get_bundled_path(os.path.join('web', 'index.html'))
+        self.web_ui_html, self.web_ui_source = load_web_ui_html(
+            WEB_UI_URL, self.web_ui_cache_file, bundled)
+        log.info('web ui: source=%s (%d bytes)',
+                 self.web_ui_source, len(self.web_ui_html or ''))
+        return self.web_ui_source
 
     def get_work_dir_list(self):
         if os.path.exists(self.work_dir_list_file):
