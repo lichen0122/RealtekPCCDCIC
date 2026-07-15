@@ -43,6 +43,19 @@ def test_remote_decodes_utf8_body(tmp_path, monkeypatch):
     assert cache.read_text(encoding='utf-8') == chinese
 
 
+def test_remote_empty_body_falls_back_to_bundled(tmp_path, monkeypatch):
+    cache = tmp_path / 'ui_cache.html'
+    bundled = tmp_path / 'bundled.html'
+    bundled.write_text('<html>bundled</html>', encoding='utf-8')
+    monkeypatch.setattr(agent.requests, 'get', lambda *a, **k: _FakeResp(''))
+
+    html, source = agent.load_web_ui_html('http://x/index.html', str(cache), str(bundled))
+
+    assert source == 'bundled'
+    assert html == '<html>bundled</html>'
+    assert not cache.exists()   # 空的遠端內容不可污染快取
+
+
 def test_remote_fail_uses_cache(tmp_path, monkeypatch):
     cache = tmp_path / 'ui_cache.html'
     cache.write_text('<html>cached</html>', encoding='utf-8')

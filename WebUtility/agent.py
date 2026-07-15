@@ -131,29 +131,36 @@ def load_web_ui_html(url, cache_file, bundled_path):
         r = requests.get(url, timeout=_HTTP_TIMEOUT)
         r.raise_for_status()
         html = r.content.decode('utf-8')   # GCS 送 text/html 無 charset;明確以 UTF-8 解碼,避免中文亂碼
-        try:
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                f.write(html)
-        except Exception:
-            log.exception('failed to cache index.html')
-        return html, 'remote'
+        if html.strip():
+            try:
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    f.write(html)
+            except Exception:
+                log.exception('failed to cache index.html')
+            return html, 'remote'
+        log.warning('remote index.html empty; falling back to cache/bundled')
     except Exception:
         log.warning('fetch index.html failed; falling back to cache/bundled', exc_info=True)
 
     # 2) 本機快取
     try:
         with open(cache_file, encoding='utf-8') as f:
-            return f.read(), 'cache'
+            cached = f.read()
+        if cached.strip():
+            return cached, 'cache'
     except Exception:
         pass
 
     # 3) 打包內建
     try:
         with open(bundled_path, encoding='utf-8') as f:
-            return f.read(), 'bundled'
+            bundled = f.read()
+        if bundled.strip():
+            return bundled, 'bundled'
     except Exception:
-        log.exception('no usable index.html (remote + cache + bundled all failed)')
+        pass
 
+    log.exception('no usable index.html (remote + cache + bundled all failed)')
     return None, 'none'
 
 
