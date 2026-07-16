@@ -54,3 +54,19 @@ def test_check_latest_version_none_on_network_error(monkeypatch):
     monkeypatch.setattr(uc, '_is_packaged', lambda: True)
     monkeypatch.setattr(uc.requests, 'get', boom)
     assert uc.check_latest_version('v20260716') is None
+
+
+def test_cleanup_stale_backup_removes_bak(tmp_path, monkeypatch):
+    exe = tmp_path / 'DV_Utility.exe'
+    exe.write_bytes(b'app')
+    bak = tmp_path / 'DV_Utility.exe.bak'
+    bak.write_bytes(b'old')
+    monkeypatch.setattr(uc, 'launcher_exe', lambda: str(exe))
+    uc.cleanup_stale_backup()
+    assert not bak.exists()
+    assert exe.exists()   # 只刪 .bak, 不動本體
+
+
+def test_cleanup_stale_backup_noop_when_not_packaged(monkeypatch):
+    monkeypatch.setattr(uc, 'launcher_exe', lambda: None)
+    uc.cleanup_stale_backup()   # 不應丟例外

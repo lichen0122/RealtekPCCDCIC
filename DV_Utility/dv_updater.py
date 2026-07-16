@@ -191,6 +191,15 @@ def main(argv=None):
             except OSError:
                 pass
         ui.close()
+        # 極端雙重失敗 (swap 途中 target 被騰空且 swap 自身的回滾也失敗) -> 盡力從 .bak 還原,
+        # 確保使用者仍有 app 可開。
+        bak = target + '.bak'
+        if not os.path.isfile(target) and os.path.isfile(bak):
+            try:
+                os.replace(bak, target)
+                _log('restored target from .bak')
+            except OSError:
+                _log('restore from .bak FAILED')
         try:
             if os.path.isfile(target):
                 relaunch(target)

@@ -81,6 +81,26 @@ def sha256_of(path):
     return h.hexdigest()
 
 
+def write_manifest(app_version, zip_path, out_path=None):
+    """依「當下的 zip_path」算出 sha256/size, 寫出 GCS manifest (publish_version.json)。
+
+    ★ sha256 是對 zip_path 當下內容計算的。CTC 簽章是「build 後手動送簽 → 取回已簽 exe →
+      重打包 zip」的事後流程, 會改變 zip 內容; 因此**簽章重打包後必須再跑一次本函式**
+      (見 --manifest-only), 對「最終已簽的 zip」重算, 否則 updater 的 sha256 檢查會失敗。
+    """
+    publish = {
+        'version':      app_version,
+        'zip_url':      GCS_ZIP_URL,
+        'size':         os.path.getsize(zip_path),
+        'sha256':       sha256_of(zip_path),
+        'release_note': os.environ.get('DVUTIL_RELEASE_NOTE', ''),
+    }
+    with open(out_path or _pubfile, 'w', encoding='utf-8') as f:
+        json.dump(publish, f, ensure_ascii=False, indent=2)
+        f.write('\n')
+    return publish
+
+
 def make_ico_from_png(png_path, ico_path):
     """由 realtek.png 產生多解析度 .ico (圖示單一來源 = png, 不另存 realtek.ico)。"""
     img = Image.open(png_path).convert('RGBA')
@@ -264,22 +284,32 @@ def main():
     shutil.make_archive(OUTPUT_NAME, 'zip', root_dir=OUTPUT_NAME, base_dir='.')
 
     # -- 發佈資訊 (主程式 update_check 比版本; dv_updater.exe 下載 + 驗 sha256) --
-    #    release_note 由環境變數 DVUTIL_RELEASE_NOTE 帶入 (可空)。上傳成 GCS 的
-    #    DVUtility/version.json (見 upload_to_gcs.py)。
-    publish = {
-        'version':      app_version,
-        'zip_url':      GCS_ZIP_URL,
-        'size':         os.path.getsize(zip_path),
-        'sha256':       sha256_of(zip_path),
-        'release_note': os.environ.get('DVUTIL_RELEASE_NOTE', ''),
-    }
-    with open(_pubfile, 'w', encoding='utf-8') as f:
-        json.dump(publish, f, ensure_ascii=False, indent=2)
-        f.write('\n')
+    #    ⚠ 此處對「未簽 zip」算 sha256。若之後走 CTC 簽章重打包, 務必再跑 --manifest-only
+    #      對最終已簽 zip 重算, 否則 updater 會因 sha256 不符而拒絕更新。
+    write_manifest(app_version, zip_path)
 
     print('完成:', f'{OUTPUT_NAME} {app_version}',
           '->', f'{OUTPUT_NAME}.exe / {UPDATER_NAME}.exe / {OUTPUT_NAME}.zip / publish_version.json')
 
 
+def _regen_manifest_only():
+    """不重建; 依現有 version.json 版本 + 現有 DV_Utility.zip 重算 manifest。
+
+    用於 CTC 簽章 + 重打包「最終已簽 zip」之後, 讓 publish_version.json 的 sha256/size 對得上。
+    """
+    with open(_verfile, encoding='utf-8') as f:
+        app_version = json.load(f)['version']
+    pub = write_manifest(app_version, f'{OUTPUT_NAME}.zip')
+    print(f'manifest 重算完成 (對現有 {OUTPUT_NAME}.zip): {pub["version"]}  sha256={pub["sha256"]}')
+
+
 if __name__ == '__main__':
-    main()
+    import argparse
+    ap = argparse.ArgumentParser(description='DV_Utility release / manifest 工具')
+    ap.add_argument('--manifest-only', action='store_true',
+                    help='不重建; 只依現有 DV_Utility.zip 重算 manifest (簽章重打包後用)')
+    ns = ap.parse_args()
+    if ns.manifest_only:
+        _regen_manifest_only()
+    else:
+        main()

@@ -1180,6 +1180,12 @@ if __name__ == "__main__":
     log.info('DV Utility starting (version=%s, log dir=%s)',
              _read_app_version(), _get_log_dir())
 
+    # 清掉上次更新留下的舊 exe 備份 (*.bak); 趁舊行程已退出, 放在最前面
+    try:
+        update_check.cleanup_stale_backup()
+    except Exception:
+        log.exception('cleanup_stale_backup failed (non-fatal)')
+
     # Windows 工作列圖示需要設定 AppUserModelID
     windll.shell32.SetCurrentProcessExplicitAppUserModelID('Realtek.PCDV.DVUtility')
 

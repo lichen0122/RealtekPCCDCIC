@@ -64,3 +64,18 @@ def launcher_exe():
         return None
     path = os.path.realpath(os.path.abspath(argv0))
     return path if path.lower().endswith('.exe') else None
+
+
+def cleanup_stale_backup():
+    """刪除上次更新留下的 DV_Utility.exe.bak (best-effort; 打包執行且上次有更新過才有)。
+
+    由主程式啟動時呼叫 —— 此時舊行程已退出、鎖已釋放, 刪得掉那顆 ~36MB 備份, 避免無限累積。
+    刪一顆備份檔屬良性行為, 不影響主程式的 OPSWAT 乾淨度。
+    """
+    exe = launcher_exe()
+    if not exe:
+        return
+    try:
+        os.remove(exe + '.bak')
+    except OSError:
+        pass
