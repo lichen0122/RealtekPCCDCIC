@@ -28,3 +28,30 @@ def parse_args(argv):
     p.add_argument('--target', required=True, help='要被替換並重啟的 DV_Utility.exe 絕對路徑')
     p.add_argument('--parent-pid', type=int, default=0)
     return p.parse_args(argv)
+
+
+def download(url, dest, expected_sha256, progress_cb=None, timeout=120):
+    """串流下載到 dest, 邊下載邊算 sha256; 不符則刪檔並丟 RuntimeError。"""
+    sha = hashlib.sha256()
+    with requests.get(url, stream=True, timeout=timeout) as r:
+        r.raise_for_status()
+        try:
+            total = int(r.headers.get('content-length') or 0)
+        except (TypeError, ValueError):
+            total = 0
+        done = 0
+        with open(dest, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=1 << 16):
+                if not chunk:
+                    continue
+                f.write(chunk)
+                sha.update(chunk)
+                done += len(chunk)
+                if progress_cb and total:
+                    progress_cb(done, total)
+    if expected_sha256 and sha.hexdigest().lower() != expected_sha256.lower():
+        try:
+            os.remove(dest)
+        except OSError:
+            pass
+        raise RuntimeError('下載檔 sha256 不符, 已中止更新')
