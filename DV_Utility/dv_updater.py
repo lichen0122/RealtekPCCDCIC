@@ -55,3 +55,14 @@ def download(url, dest, expected_sha256, progress_cb=None, timeout=120):
         except OSError:
             pass
         raise RuntimeError('下載檔 sha256 不符, 已中止更新')
+
+
+def extract_main_exe(zip_path, dest_exe):
+    """從 zip 取出 DV_Utility.exe 寫到 dest_exe; 找不到則丟 RuntimeError。"""
+    with zipfile.ZipFile(zip_path) as z:
+        name = next((n for n in z.namelist()
+                     if n.lower().rstrip('/').endswith('dv_utility.exe')), None)
+        if name is None:
+            raise RuntimeError('zip 內找不到 DV_Utility.exe')
+        with z.open(name) as src, open(dest_exe, 'wb') as dst:
+            shutil.copyfileobj(src, dst)

@@ -54,3 +54,26 @@ def test_download_sha_mismatch_removes_file(tmp_path):
         assert not dest.exists()
     finally:
         httpd.shutdown()
+
+
+import zipfile
+
+
+def test_extract_main_exe(tmp_path):
+    zpath = tmp_path / 'DV_Utility.zip'
+    with zipfile.ZipFile(zpath, 'w') as z:
+        z.writestr('DV_Utility.exe', b'NEW-EXE-BYTES')
+        z.writestr('dv_updater.exe', b'UPDATER-BYTES')
+        z.writestr('resource/x.txt', b'noise')
+    out = tmp_path / 'extracted.exe'
+    dv_updater.extract_main_exe(str(zpath), str(out))
+    assert out.read_bytes() == b'NEW-EXE-BYTES'
+
+
+def test_extract_main_exe_missing(tmp_path):
+    zpath = tmp_path / 'bad.zip'
+    with zipfile.ZipFile(zpath, 'w') as z:
+        z.writestr('readme.txt', b'no exe here')
+    import pytest
+    with pytest.raises(RuntimeError):
+        dv_updater.extract_main_exe(str(zpath), str(tmp_path / 'out.exe'))
