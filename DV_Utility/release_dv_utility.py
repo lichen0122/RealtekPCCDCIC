@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -25,11 +26,17 @@ from PIL import Image
 # ---------------------------------------------------------------------------
 
 OUTPUT_NAME = 'DV_Utility'
+UPDATER_NAME = 'dv_updater'
+
+# 更新檢查/下載: 發佈端上傳到 GCS 的 zip 公開網址 (dv_updater.exe 會抓它)。
+GCS_ZIP_URL = 'https://storage.googleapis.com/realtek-pccdcic-dv/DVUtility/DV_Utility.zip'
 
 _here    = os.path.dirname(os.path.abspath(__file__))
 _png     = os.path.join(_here, 'realtek.png')
 _script  = os.path.join(_here, 'dv_utility.py')
 _verfile = os.path.join(_here, 'version.json')
+_pubfile = os.path.join(_here, 'publish_version.json')   # 上傳成 GCS 的 version.json
+_updater_script = os.path.join(_here, 'dv_updater.py')
 
 # Set DEBUG_BUILD=True to keep the console window for troubleshooting.
 DEBUG_BUILD = False
@@ -63,6 +70,15 @@ def numeric_version(disp):
         raise SystemExit(f'version.json 版本格式無法解析: {disp!r}')
     y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
     return f'{y}.{mo}.{d}.{int(m.group(4) or 0)}'
+
+
+def sha256_of(path):
+    """檔案 sha256 (供 manifest 記錄, dv_updater.exe 下載後比對完整性)。"""
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def make_ico_from_png(png_path, ico_path):
@@ -201,6 +217,38 @@ def main():
     #    在下面 copy / zip 之前簽 dist 的 built_exe -> 所有派送副本 (含 zip 內的 exe)
     #    都帶同一份簽章。未設定憑證則自動略過 (見 sign_exe)。
     built_exe = os.path.join('dist', f'{OUTPUT_NAME}.exe')
+
+    # -- build 更新器 (dv_updater.exe; Nuitka onefile, 溫和版) --------------
+    #    主 build 的 finally 已刪掉 tmp_ico, 這裡若不存在就重建。
+    if not os.path.exists(tmp_ico):
+        make_ico_from_png(_png, tmp_ico)
+    updater_cmd = [
+        sys.executable, '-m', 'nuitka',
+        '--mode=onefile',
+        '--enable-plugin=tk-inter',
+        '--onefile-tempdir-spec={CACHE_DIR}/{COMPANY}/{PRODUCT}_Updater/{VERSION}',
+        '--onefile-cache-mode=cached',
+        '--company-name=Realtek',
+        '--product-name=DV_Utility_Updater',
+        f'--product-version={num_version}',
+        f'--file-version={num_version}',
+        f'--windows-icon-from-ico={tmp_ico}',
+        '--assume-yes-for-downloads',
+        '--output-dir=dist',
+        f'--output-filename={UPDATER_NAME}.exe',
+        '--remove-output',
+    ]
+    if not DEBUG_BUILD:
+        updater_cmd.append('--windows-console-mode=disable')
+    updater_cmd.append(_updater_script)
+    try:
+        subprocess.run(updater_cmd, check=True)
+    finally:
+        if os.path.exists(tmp_ico):
+            os.remove(tmp_ico)
+    built_updater = os.path.join('dist', f'{UPDATER_NAME}.exe')
+    sign_exe(built_updater)   # 選配 signtool 簽章; 未設憑證則略過 (CTC 為實際簽章路徑)
+
     sign_exe(built_exe)
 
     # -- package -------------------------------------------------------------
@@ -208,13 +256,29 @@ def main():
     os.makedirs(OUTPUT_NAME, exist_ok=True)
     shutil.copy2(built_exe, os.path.join(OUTPUT_NAME, f'{OUTPUT_NAME}.exe'))
     shutil.copy2(built_exe, f'{OUTPUT_NAME}.exe')
+    shutil.copy2(built_updater, os.path.join(OUTPUT_NAME, f'{UPDATER_NAME}.exe'))
+    shutil.copy2(built_updater, f'{UPDATER_NAME}.exe')
 
-    # -- zip -----------------------------------------------------------------
-    #    zip 僅供 IT / 使用者手動下載部署 (已移除自我更新, 不會自動推送給既有使用者)。
+    # -- zip (含 DV_Utility.exe + dv_updater.exe) ----------------------------
+    zip_path = f'{OUTPUT_NAME}.zip'
     shutil.make_archive(OUTPUT_NAME, 'zip', root_dir=OUTPUT_NAME, base_dir='.')
 
+    # -- 發佈資訊 (主程式 update_check 比版本; dv_updater.exe 下載 + 驗 sha256) --
+    #    release_note 由環境變數 DVUTIL_RELEASE_NOTE 帶入 (可空)。上傳成 GCS 的
+    #    DVUtility/version.json (見 upload_to_gcs.py)。
+    publish = {
+        'version':      app_version,
+        'zip_url':      GCS_ZIP_URL,
+        'size':         os.path.getsize(zip_path),
+        'sha256':       sha256_of(zip_path),
+        'release_note': os.environ.get('DVUTIL_RELEASE_NOTE', ''),
+    }
+    with open(_pubfile, 'w', encoding='utf-8') as f:
+        json.dump(publish, f, ensure_ascii=False, indent=2)
+        f.write('\n')
+
     print('完成:', f'{OUTPUT_NAME} {app_version}',
-          '->', f'{OUTPUT_NAME}.exe / {OUTPUT_NAME}.zip')
+          '->', f'{OUTPUT_NAME}.exe / {UPDATER_NAME}.exe / {OUTPUT_NAME}.zip / publish_version.json')
 
 
 if __name__ == '__main__':
