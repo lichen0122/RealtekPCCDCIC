@@ -30,6 +30,48 @@ def parse_args(argv):
     return p.parse_args(argv)
 
 
+class _StatusUI:
+    """更新期間的極簡狀態視窗 (tkinter, best-effort)。主程式已退出, 需自己給點回饋。
+
+    tkinter 失敗 (無顯示器等) 時全部 no-op, 不影響更新流程。
+    """
+
+    def __init__(self):
+        self._tk = None
+        self._label = None
+
+    def start(self, text):
+        try:
+            import tkinter as tk
+            self._tk = tk.Tk()
+            self._tk.title('DV Utility 更新')
+            self._tk.attributes('-topmost', True)
+            self._tk.geometry('320x90')
+            self._label = tk.Label(self._tk, text=text, padx=16, pady=20)
+            self._label.pack(expand=True, fill='both')
+            self._tk.update()
+        except Exception:
+            self._tk = None
+
+    def set_text(self, text):
+        if not self._tk:
+            return
+        try:
+            self._label.config(text=text)
+            self._tk.update()
+        except Exception:
+            pass
+
+    def close(self):
+        if not self._tk:
+            return
+        try:
+            self._tk.destroy()
+        except Exception:
+            pass
+        self._tk = None
+
+
 def download(url, dest, expected_sha256, progress_cb=None, timeout=120):
     """串流下載到 dest, 邊下載邊算 sha256; 不符則刪檔並丟 RuntimeError。"""
     sha = hashlib.sha256()
@@ -91,3 +133,75 @@ def swap_with_backup(target_exe, new_exe, attempts=20, delay=0.3):
     except Exception:
         os.replace(bak, target_exe)
         raise
+
+
+def relaunch(exe):
+    """啟動新版 (一般子行程, 無特殊旗標)。"""
+    subprocess.Popen([exe], cwd=os.path.dirname(exe), close_fds=True)
+
+
+def _log(msg):
+    """寫一行 log 到 target 同層的更新記錄 (best-effort)。"""
+    try:
+        with open(os.path.join(os.path.dirname(_LOG_TARGET or '.'), 'dv_updater.log'),
+                  'a', encoding='utf-8') as f:
+            f.write(msg + '\n')
+    except Exception:
+        pass
+
+
+_LOG_TARGET = None
+
+
+def main(argv=None):
+    global _LOG_TARGET
+    args = parse_args(argv if argv is not None else sys.argv[1:])
+    target = os.path.realpath(args.target)
+    _LOG_TARGET = target
+    work_dir = os.path.dirname(target)
+    part = os.path.join(work_dir, 'DV_Utility.update.part')   # 下載暫存 (同磁碟區)
+    new_exe = os.path.join(work_dir, 'DV_Utility.update.new')  # 解壓出的新 exe (同磁碟區)
+
+    ui = _StatusUI()
+    ui.start(f'正在更新到 {args.version} …')
+    # 給主程式一點時間完成退出 (釋放 exe 檔案鎖); 下載本身也會再拖幾秒
+    time.sleep(0.5)
+
+    # 先把「殘留暫存」清掉
+    for leftover in (part, new_exe):
+        try:
+            os.remove(leftover)
+        except OSError:
+            pass
+
+    try:
+        ui.set_text(f'下載中 … ({args.version})')
+        download(args.zip_url, part, args.sha256,
+                 progress_cb=lambda d, t: ui.set_text(f'下載中 … {int(d / t * 100)}%'))
+        ui.set_text('安裝中 …')
+        extract_main_exe(part, new_exe)
+        os.remove(part)
+        swap_with_backup(target, new_exe)
+    except Exception as e:
+        # 失敗: 清暫存, 重啟舊版 (仍完好), 讓使用者不會沒程式可用
+        _log(f'update FAILED: {e!r}')
+        for leftover in (part, new_exe):
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass
+        ui.close()
+        try:
+            if os.path.isfile(target):
+                relaunch(target)
+        except Exception:
+            _log('relaunch old exe FAILED')
+        sys.exit(1)
+
+    _log(f'update OK -> {args.version}')
+    ui.close()
+    relaunch(target)
+
+
+if __name__ == '__main__':
+    main()
