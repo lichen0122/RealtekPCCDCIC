@@ -66,3 +66,28 @@ def extract_main_exe(zip_path, dest_exe):
             raise RuntimeError('zip 內找不到 DV_Utility.exe')
         with z.open(name) as src, open(dest_exe, 'wb') as dst:
             shutil.copyfileobj(src, dst)
+
+
+def swap_with_backup(target_exe, new_exe, attempts=20, delay=0.3):
+    """舊檔改 .bak -> 新檔就位; 帶退避重試 (等主程式退出釋放檔案鎖)。
+
+    失敗會自動回滾 (把 .bak 還原成 target) 並把例外往上丟。
+    """
+    bak = target_exe + '.bak'
+    # 1) 把舊檔挪到 .bak (等鎖釋放; 主程式為 onefile, 退出後才解得了鎖)
+    for i in range(attempts):
+        try:
+            if os.path.exists(bak):
+                os.remove(bak)
+            os.replace(target_exe, bak)
+            break
+        except PermissionError:
+            if i == attempts - 1:
+                raise
+            time.sleep(delay * (i + 1))
+    # 2) 新檔就位; 失敗則回滾
+    try:
+        os.replace(new_exe, target_exe)
+    except Exception:
+        os.replace(bak, target_exe)
+        raise

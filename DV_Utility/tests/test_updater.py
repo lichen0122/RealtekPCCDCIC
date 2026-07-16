@@ -1,3 +1,5 @@
+import os
+
 import dv_updater
 
 
@@ -77,3 +79,36 @@ def test_extract_main_exe_missing(tmp_path):
     import pytest
     with pytest.raises(RuntimeError):
         dv_updater.extract_main_exe(str(zpath), str(tmp_path / 'out.exe'))
+
+
+def test_swap_with_backup_happy(tmp_path):
+    target = tmp_path / 'DV_Utility.exe'
+    target.write_bytes(b'OLD')
+    new = tmp_path / 'new.exe'
+    new.write_bytes(b'NEW')
+    dv_updater.swap_with_backup(str(target), str(new))
+    assert target.read_bytes() == b'NEW'
+    assert (tmp_path / 'DV_Utility.exe.bak').read_bytes() == b'OLD'
+    assert not new.exists()
+
+
+def test_swap_with_backup_rollback_on_failure(tmp_path, monkeypatch):
+    target = tmp_path / 'DV_Utility.exe'
+    target.write_bytes(b'OLD')
+    new = tmp_path / 'new.exe'
+    new.write_bytes(b'NEW')
+
+    real_replace = os.replace
+    calls = {'n': 0}
+
+    def flaky_replace(src, dst):
+        calls['n'] += 1
+        if calls['n'] == 2:
+            raise OSError('boom placing new exe')
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(dv_updater.os, 'replace', flaky_replace)
+    import pytest
+    with pytest.raises(OSError):
+        dv_updater.swap_with_backup(str(target), str(new))
+    assert target.read_bytes() == b'OLD'
