@@ -193,7 +193,23 @@ def sign_exe(path):
     return True
 
 
-def main():
+def _sign_both(built_exe, built_updater, sign_ctc):
+    """簽兩顆 exe: sign_ctc=True 走 CTC (hsm-cli, 半自動, 等主管 FEDEX 核准);
+    否則走既有 signtool sign_exe (未設憑證則略過)。"""
+    if not sign_ctc:
+        sign_exe(built_updater)
+        sign_exe(built_exe)
+        return
+    import ctc_sign
+    for exe in (built_updater, built_exe):   # 更新器少改, 但一次發佈仍一起簽較單純
+        print(f'CTC 簽署 {exe} … (送簽後請直屬主管到 FEDEX 核准)')
+        tmp = exe + '.signed'
+        ctc_sign.sign_file(exe, out_path=tmp)
+        os.replace(tmp, exe)
+        print(f'CTC 簽署完成 -> {exe}')
+
+
+def main(sign_ctc=False):
     # -- 進版 (先進版, 再打包) ------------------------------------------------
     app_version = bump_version(_verfile)          # 例: v20260604
     num_version = numeric_version(app_version)     # 例: 2026.6.4.0
@@ -267,9 +283,9 @@ def main():
         if os.path.exists(tmp_ico):
             os.remove(tmp_ico)
     built_updater = os.path.join('dist', f'{UPDATER_NAME}.exe')
-    sign_exe(built_updater)   # 選配 signtool 簽章; 未設憑證則略過 (CTC 為實際簽章路徑)
 
-    sign_exe(built_exe)
+    # 簽章: --sign-ctc 走 CTC (hsm-cli); 否則走 signtool sign_exe (未設憑證則略過)。
+    _sign_both(built_exe, built_updater, sign_ctc)
 
     # -- package -------------------------------------------------------------
     shutil.rmtree(OUTPUT_NAME, ignore_errors=True)
@@ -308,8 +324,10 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser(description='DV_Utility release / manifest 工具')
     ap.add_argument('--manifest-only', action='store_true',
                     help='不重建; 只依現有 DV_Utility.zip 重算 manifest (簽章重打包後用)')
+    ap.add_argument('--sign-ctc', action='store_true',
+                    help='build 後用 CTC (hsm-cli) 簽兩顆 exe (需 DVUTIL_HSM_* 設定; 會等主管 FEDEX 核准)')
     ns = ap.parse_args()
     if ns.manifest_only:
         _regen_manifest_only()
     else:
-        main()
+        main(sign_ctc=ns.sign_ctc)

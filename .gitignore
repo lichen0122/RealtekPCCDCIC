@@ -14,3 +14,9 @@ DV_Utility/DV_Utility.zip
 __pycache__/
 .venv/
 /isp/regh2setting
+
+# CTC 簽署 CLI 與含 token 的設定 (機密, 絕不進 git; 連 git add -f 也別碰)
+DV_Utility/hsm/
+WebUtility/hsm/
+hsm/
+hsm.config.yaml
