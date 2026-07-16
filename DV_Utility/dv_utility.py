@@ -16,6 +16,7 @@ from pathlib import Path
 import os
 import logging
 from logging.handlers import RotatingFileHandler
+import update_check
 
 
 # --------------------------------------------------------------------------- #
@@ -158,6 +159,7 @@ class WorkerSignals(QObject):
     hide_status_frame  = Signal()
     set_btn_enabled    = Signal(bool)
     process_added      = Signal(object)   # 攜帶新 process 紀錄, 於 GUI thread append
+    update_available   = Signal(object)   # 更新檢查: 發現新版 (攜帶 manifest info dict)
 
 
 class AutoUpdateGUI(QMainWindow):
@@ -188,6 +190,10 @@ class AutoUpdateGUI(QMainWindow):
 
         self.init_window()
         self.connect_signals()
+
+        # 背景檢查是否有新版 (僅打包執行; 純 JSON 讀取, 無下載/執行行為); 有更新則通知 GUI
+        self._update_info = None
+        threading.Thread(target=self._check_update, daemon=True).start()
 
     # ------------------------------------------------------------------ #
     #  Resource / settings
@@ -577,6 +583,8 @@ class AutoUpdateGUI(QMainWindow):
         self.signals.set_btn_enabled.connect(self.start_button.setEnabled)
         # queued connection (worker thread -> GUI thread): append + 刷新都在 GUI thread
         self.signals.process_added.connect(self._add_process)
+        # 更新檢查 (worker thread -> GUI thread)
+        self.signals.update_available.connect(self._slot_update_available)
 
     # ------------------------------------------------------------------ #
     #  Signal slots (run on main thread)
@@ -592,6 +600,21 @@ class AutoUpdateGUI(QMainWindow):
     def _slot_show_status_frame(self):
         self.status_frame.show()
         self.release_note_frame.show()
+
+    # ------------------------------------------------------------------ #
+    #  Update check (背景 thread) —— 只讀 JSON, 不下載/不執行
+    # ------------------------------------------------------------------ #
+    def _check_update(self):
+        """背景執行緒: 比對 GCS 最新版本, 有新版就通知 GUI thread 顯示更新按鈕。"""
+        try:
+            info = update_check.check_latest_version(self.version)
+            if info:
+                log.info('update-check: new version available: %s', info.get('version'))
+                self.signals.update_available.emit(info)
+            else:
+                log.info('update-check: no update (or not packaged)')
+        except Exception:
+            log.exception('update-check failed')
 
     # ------------------------------------------------------------------ #
     #  Hotkey
