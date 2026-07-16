@@ -14,7 +14,119 @@ import subprocess
 import zipfile
 from pathlib import Path
 import os
-import self_update
+import logging
+from logging.handlers import RotatingFileHandler
+
+
+# --------------------------------------------------------------------------- #
+#  Logging
+#  打包成 exe 後沒有 console, print() 全看不到; 改用檔案 log 協助遠端 debug
+#  (例如下載卡死 / 網路逾時 / 解壓失敗 / 子程序啟動失敗)。
+#  log 位置: USER_HOME/.PCDV/DVUtility/dv_utility.log (輪替保留數份)。
+# --------------------------------------------------------------------------- #
+
+# requests 逾時 (秒): (連線逾時, 讀取逾時)。
+# 讀取逾時是「兩次收到資料之間」的上限 —— 對 stream 下載而言, 一旦卡住不再有資料
+# 就會丟出 ReadTimeout, 不會無限卡死 (這是「下載卡死」最主要的元兇: 原本沒有逾時)。
+_CONNECT_TIMEOUT = 15
+_READ_TIMEOUT    = 60
+_HTTP_TIMEOUT    = (_CONNECT_TIMEOUT, _READ_TIMEOUT)
+
+# 下載進度每累積這麼多 bytes 就記一次 log, 用來觀察下載卡在哪個進度。
+_LOG_EVERY_BYTES = 5 * 1024 * 1024
+
+
+def _get_log_dir():
+    """log 目錄: USER_HOME/.PCDV/DVUtility/。
+
+    建立失敗 (權限 / 唯讀家目錄等) 則退回系統暫存目錄, 仍不讓程式因記 log 而崩潰。
+    """
+    log_dir = Path.home() / '.PCDV' / 'DVUtility'
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return log_dir
+    except Exception:
+        import tempfile
+        fallback = Path(tempfile.gettempdir()) / 'PCDV_DVUtility'
+        try:
+            fallback.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return fallback
+
+
+def _setup_logging():
+    """初始化並回傳共用 logger; 重複呼叫不會重覆掛 handler。"""
+    logger = logging.getLogger('DVUtility')
+    if logger.handlers:            # 已初始化過
+        return logger
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+
+    fmt = logging.Formatter(
+        '%(asctime)s [%(levelname)s] (%(threadName)s) %(funcName)s:%(lineno)d - %(message)s'
+    )
+
+    log_file = _get_log_dir() / 'dv_utility.log'
+    try:
+        # 單檔 2MB, 保留 5 份, 避免 log 無限膨脹
+        fh = RotatingFileHandler(str(log_file), maxBytes=2 * 1024 * 1024,
+                                 backupCount=5, encoding='utf-8')
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+    except Exception:
+        pass
+
+    # 開發模式 (python dv_utility.py) 也同步輸出到 console。
+    # 打包成 windowed exe 時 sys.stderr 為 None, 掛上去只會每筆 log 觸發並吞掉 AttributeError,
+    # 是無意義的負擔; 故僅在真的有 stderr 時才加。
+    if sys.stderr is not None:
+        try:
+            sh = logging.StreamHandler()
+            sh.setLevel(logging.INFO)
+            sh.setFormatter(fmt)
+            logger.addHandler(sh)
+        except Exception:
+            pass
+
+    return logger
+
+
+def _install_excepthook():
+    """把未攔截的例外 (主執行緒 + 各 worker thread) 都寫進 log。
+
+    下載 / 檢查工具更新都跑在背景執行緒, 未攔截例外原本會讓該 thread 靜默死掉
+    (在打包 exe 裡連 stderr 都看不到), 介面就這樣卡住。攔下來記 log 才有辦法追。
+    """
+    prev = sys.excepthook
+
+    def _hook(exc_type, exc, tb):
+        try:
+            log.critical('Uncaught exception on main thread',
+                         exc_info=(exc_type, exc, tb))
+        except Exception:
+            pass
+        prev(exc_type, exc, tb)
+
+    sys.excepthook = _hook
+
+    def _thread_hook(args):
+        try:
+            log.critical('Uncaught exception on thread %s',
+                         getattr(args.thread, 'name', '?'),
+                         exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+        except Exception:
+            pass
+
+    try:
+        threading.excepthook = _thread_hook   # Python 3.8+
+    except Exception:
+        pass
+
+
+log = _setup_logging()
+_install_excepthook()
 
 
 def get_bundled_path(filename):
@@ -34,6 +146,7 @@ def _read_app_version():
         with open(get_bundled_path('version.json'), encoding='utf-8') as f:
             return json.load(f).get('version', 'vUNKNOWN')
     except Exception:
+        log.warning('could not read version.json, using vUNKNOWN', exc_info=True)
         return 'vUNKNOWN'
 
 
@@ -45,8 +158,6 @@ class WorkerSignals(QObject):
     hide_status_frame  = Signal()
     set_btn_enabled    = Signal(bool)
     process_added      = Signal(object)   # 攜帶新 process 紀錄, 於 GUI thread append
-    update_available   = Signal(object)   # 自我更新: 發現新版 (攜帶 info dict)
-    update_done        = Signal(bool, str)  # 自我更新: 結束 (成功?, 版本/錯誤訊息)
 
 
 class AutoUpdateGUI(QMainWindow):
@@ -64,16 +175,19 @@ class AutoUpdateGUI(QMainWindow):
         # 每筆紀錄為 {'popen': Popen, 'label': str}
         self.processes = []
 
+        log.info('AutoUpdateGUI init (version=%s)', self.version)
         self.ensure_resource_files()
 
-        with open(self.setting_file, "r") as f:
-            self.setting = json.loads(f.read())
+        try:
+            with open(self.setting_file, "r") as f:
+                self.setting = json.loads(f.read())
+            log.info('loaded setting.json (%d tools)', len(self.setting))
+        except Exception:
+            log.exception('failed to load setting.json: %s', self.setting_file)
+            raise
 
         self.init_window()
         self.connect_signals()
-
-        # 背景檢查自我更新 (僅打包執行時動作; 無更新 / 失敗皆靜默)
-        threading.Thread(target=self._check_self_update, daemon=True).start()
 
     # ------------------------------------------------------------------ #
     #  Resource / settings
@@ -85,8 +199,13 @@ class AutoUpdateGUI(QMainWindow):
         self.work_dir_list_file = f'{self.resource}/work_dir_list.json'
         self.tool_history_file  = f'{self.resource}/tool_history.json'
 
+        log.info('resource dir: %s', self.resource)
         if not os.path.exists(self.resource):
-            os.mkdir(self.resource)
+            try:
+                os.mkdir(self.resource)
+            except Exception:
+                log.exception('failed to create resource dir: %s', self.resource)
+                raise
 
         # 產生下拉箭頭 (macOS 風格雙 chevron) 資產, 供 QComboBox QSS 使用
         self._ensure_chevron_asset()
@@ -94,7 +213,14 @@ class AutoUpdateGUI(QMainWindow):
         # 啟動載入畫面 (見 __main__ 的 create_loading_splash) 已覆蓋此處的下載等待,
         # 故同步下載即可, 不再另開進度條 splash。
         url = 'https://raw.github.com/lichen0122/RealtekPCCDCIC/main/dv_util_resource/setting.json'
-        self.download_from_git(url, self.setting_file)
+        try:
+            self.download_from_git(url, self.setting_file)
+        except Exception:
+            log.exception('ensure_resource_files: failed to refresh setting.json (url=%s)', url)
+            if not os.path.exists(self.setting_file):
+                log.critical('setting.json missing and download failed; startup cannot continue')
+                raise
+            log.warning('ensure_resource_files: falling back to existing setting.json from a previous run')
 
         if not os.path.exists(self.work_dir_list_file):
             with open(self.work_dir_list_file, 'w') as f:
@@ -451,9 +577,6 @@ class AutoUpdateGUI(QMainWindow):
         self.signals.set_btn_enabled.connect(self.start_button.setEnabled)
         # queued connection (worker thread -> GUI thread): append + 刷新都在 GUI thread
         self.signals.process_added.connect(self._add_process)
-        # 自我更新 (worker thread -> GUI thread)
-        self.signals.update_available.connect(self._slot_update_available)
-        self.signals.update_done.connect(self._slot_update_done)
 
     # ------------------------------------------------------------------ #
     #  Signal slots (run on main thread)
@@ -471,88 +594,64 @@ class AutoUpdateGUI(QMainWindow):
         self.release_note_frame.show()
 
     # ------------------------------------------------------------------ #
-    #  Self-update (DV_Utility.exe 本身的線上更新)
-    # ------------------------------------------------------------------ #
-    def _check_self_update(self):
-        """背景執行緒: 比對 GCS 上的最新版本, 有更新就通知 GUI thread。"""
-        info = self_update.check_for_new_version(self.version)
-        if info:
-            self.signals.update_available.emit(info)
-
-    def _slot_update_available(self, info):
-        """GUI thread: 詢問使用者是否立即更新。"""
-        latest = info.get('version', '')
-        ret = QMessageBox.question(
-            self, "發現新版本",
-            f"目前版本 {self.version}\n最新版本 {latest}\n\n是否立即更新並重新啟動?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if ret == QMessageBox.StandardButton.Yes:
-            self.start_button.setEnabled(False)
-            self.signals.show_status_frame.emit()
-            self.signals.update_status.emit("下載更新中 ...")
-            threading.Thread(target=self._run_self_update, args=(info,), daemon=True).start()
-
-    def _run_self_update(self, info):
-        """背景執行緒: 下載 + 換檔 + 啟動新版; 結果回報 GUI thread。"""
-        try:
-            self_update.download_and_swap(
-                info,
-                progress_cb=lambda d, t: self.signals.update_progress.emit(d, t),
-            )
-        except Exception as e:
-            self.signals.update_done.emit(False, str(e))
-            return
-        self.signals.update_done.emit(True, info.get('version', ''))
-
-    def _slot_update_done(self, ok, message):
-        """GUI thread: 成功 -> 結束本程式讓新版接手; 失敗 -> 提示並恢復。"""
-        if ok:
-            self.signals.update_status.emit("更新完成, 正在重新啟動 ...")
-            self.app.quit()
-        else:
-            self.start_button.setEnabled(True)
-            self.signals.hide_status_frame.emit()
-            QMessageBox.warning(self, "更新失敗", f"自我更新失敗:\n{message}")
-
-    # ------------------------------------------------------------------ #
     #  Hotkey
     # ------------------------------------------------------------------ #
     def on_ctrl_m(self):
-        subprocess.Popen(['explorer', self.get_install_dir()])
+        try:
+            subprocess.Popen(['explorer', self.get_install_dir()])
+        except Exception:
+            log.exception('on_ctrl_m: failed to open install dir in explorer')
 
     # ------------------------------------------------------------------ #
     #  File helpers
     # ------------------------------------------------------------------ #
     def download_from_git(self, url, output, progress_cb=None):
-        with requests.get(url, stream=True) as r:
-            try:
-                total_length = int(r.headers.get('content-length'))
-            except Exception:
-                total_length = 36408565
-            downloaded = 0
-            with open(output, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    if chunk:
-                        downloaded += len(chunk)
-                        f.write(chunk)
-                        if progress_cb:
-                            progress_cb(downloaded, total_length)
+        log.info('download_from_git start: %s -> %s', url, output)
+        try:
+            with requests.get(url, stream=True, timeout=_HTTP_TIMEOUT) as r:
+                r.raise_for_status()
+                try:
+                    total_length = int(r.headers.get('content-length'))
+                except Exception:
+                    total_length = 36408565
+                downloaded = 0
+                next_mark  = _LOG_EVERY_BYTES
+                with open(output, 'wb') as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        if chunk:
+                            downloaded += len(chunk)
+                            f.write(chunk)
+                            if progress_cb:
+                                progress_cb(downloaded, total_length)
+                            if downloaded >= next_mark:
+                                log.info('download_from_git progress: %d/%d bytes (%s)',
+                                         downloaded, total_length, url)
+                                next_mark += _LOG_EVERY_BYTES
+            log.info('download_from_git done: %d bytes -> %s', downloaded, output)
+        except Exception:
+            log.exception('download_from_git FAILED: %s -> %s', url, output)
+            raise
 
     def get_work_dir_list(self):
+        self.work_dir_list = []
         if os.path.exists(self.work_dir_list_file):
-            with open(self.work_dir_list_file, 'r') as f:
-                self.work_dir_list = json.load(f)
-        else:
-            self.work_dir_list = []
+            try:
+                with open(self.work_dir_list_file, 'r') as f:
+                    self.work_dir_list = json.load(f)
+            except Exception:
+                # 檔案損毀 / 被中斷寫入 (truncated JSON) 時, 退回空清單讓程式仍可啟動
+                log.exception('get_work_dir_list: failed to read %s (fallback to empty list)',
+                              self.work_dir_list_file)
 
     def get_tool_history(self):
+        self.tool_history = ""
         if os.path.exists(self.tool_history_file):
-            with open(self.tool_history_file, 'r') as f:
-                self.tool_history = json.load(f)
-        else:
-            self.tool_history = ""
+            try:
+                with open(self.tool_history_file, 'r') as f:
+                    self.tool_history = json.load(f)
+            except Exception:
+                log.exception('get_tool_history: failed to read %s (fallback to empty)',
+                              self.tool_history_file)
 
     def remove_duplicates(self, input_list):
         seen   = set()
@@ -578,8 +677,12 @@ class AutoUpdateGUI(QMainWindow):
     def add_work_dir_list(self, new_dir):
         self.work_dir_list = [new_dir] + self.work_dir_list
         self.work_dir_list = self.remove_duplicates(self.work_dir_list)
-        with open(self.work_dir_list_file, 'w') as f:
-            json.dump(self.work_dir_list, f)
+        try:
+            with open(self.work_dir_list_file, 'w') as f:
+                json.dump(self.work_dir_list, f)
+        except Exception:
+            # 寫入失敗不阻斷操作 (清單此次未持久化), 但要留下紀錄
+            log.exception('add_work_dir_list: failed to write %s', self.work_dir_list_file)
 
         self.choose_work_dir.blockSignals(True)
         self.choose_work_dir.clear()
@@ -595,9 +698,14 @@ class AutoUpdateGUI(QMainWindow):
         self.version_label.setText("")
 
         self.tool_history = self.choose_tool.currentText()
-        with open(self.tool_history_file, 'w') as f:
-            json.dump(self.tool_history, f)
+        try:
+            with open(self.tool_history_file, 'w') as f:
+                json.dump(self.tool_history, f)
+        except Exception:
+            # 記錄工具選擇失敗不應擋住開啟程式的流程
+            log.exception('start_update: failed to write tool history %s', self.tool_history_file)
 
+        log.info('start_update: tool=%s', self.tool_history)
         self.target = self.setting[self.choose_tool.currentText()]
         self.ensure_work_dir()
 
@@ -617,42 +725,63 @@ class AutoUpdateGUI(QMainWindow):
         self.signals.show_status_frame.emit()
         self.signals.set_btn_enabled.emit(False)
 
-        self.get_newest_version()
-        self.get_current_version()
-        self.get_extract_info()
+        try:
+            self.get_newest_version()
+            self.get_current_version()
+            self.get_extract_info()
 
-        if ('version' in self.current_version_info and
-                'version' in self.newest_version_info and
-                self.current_version_info['version'] == self.newest_version_info['version']):
-            self.update_required = False
-        else:
-            self.update_required = True
+            if ('version' in self.current_version_info and
+                    'version' in self.newest_version_info and
+                    self.current_version_info['version'] == self.newest_version_info['version']):
+                self.update_required = False
+            else:
+                self.update_required = True
+            log.info('check_for_update: update_required=%s (current=%s newest=%s)',
+                     self.update_required,
+                     self.current_version_info.get('version'),
+                     self.newest_version_info.get('version'))
 
-        self.signals.update_status.emit("下載更新")
-        threading.Thread(target=self.download_file).start()
+            self.signals.update_status.emit("下載更新")
+            threading.Thread(target=self.download_file).start()
+        except Exception:
+            log.exception('check_for_update FAILED (target=%s)', getattr(self, 'target', '?'))
+            self.signals.update_status.emit("檢查更新失敗, 請確認網路連線 (詳見 log)")
+            self.signals.set_btn_enabled.emit(True)
 
     def update_progress(self, downloaded, total_length):
         self.signals.update_progress.emit(downloaded, total_length)
 
     def get_newest_version(self):
-        r = requests.get(self.target)
+        log.info('get_newest_version: fetching %s', self.target)
+        r = requests.get(self.target, timeout=_HTTP_TIMEOUT)
+        r.raise_for_status()
         self.newest_version_info = json.loads(r.text)
         self.target_directory    = self.get_install_dir() + "/" + self.newest_version_info["target_directory"]
         self.update_info         = self.newest_version_info['update_info']
         self.current_version     = self.target_directory + "/" + self.newest_version_info["current_version"]
         self.exe_name            = self.newest_version_info["exe_name"]
         self.release_note        = self.newest_version_info.get("release_note", "")
+        log.info('get_newest_version: newest=%s exe=%s target_dir=%s',
+                 self.newest_version_info.get('version'), self.exe_name, self.target_directory)
 
     def get_current_version(self):
         version_info = {}
         if os.path.isfile(self.current_version):
-            with open(self.current_version, "r") as f:
-                version_info = json.loads(f.read())
+            try:
+                with open(self.current_version, "r") as f:
+                    version_info = json.loads(f.read())
+            except Exception:
+                log.exception('get_current_version: failed to read %s (treated as no version)',
+                              self.current_version)
         self.current_version_info = version_info
 
     def set_current_version(self, version_info):
-        with open(self.current_version, "w") as f:
-            f.write(json.dumps(version_info))
+        try:
+            with open(self.current_version, "w") as f:
+                f.write(json.dumps(version_info))
+            log.info('set_current_version: wrote %s to %s', version_info, self.current_version)
+        except Exception:
+            log.exception('set_current_version: failed to write %s', self.current_version)
 
     def get_zip_file_name(self, url):
         return url.split("/")[-1]
@@ -665,43 +794,63 @@ class AutoUpdateGUI(QMainWindow):
             extract_to = info["extract_to"]
             extract_path = self.work_dir if extract_to == "work_dir" else self.target_directory
             self.extract_info.append((url, extract_path, overwrite))
+        log.info('get_extract_info: %d item(s) to process', len(self.extract_info))
 
     def download_file(self):
         result = True
-        for url, extract_dir, en_overwrite in self.extract_info:
-            print(url, extract_dir, en_overwrite)
+        try:
+            for url, extract_dir, en_overwrite in self.extract_info:
+                log.info('download_file: url=%s extract_dir=%s overwrite=%s',
+                         url, extract_dir, en_overwrite)
 
-            zip_file_name = self.get_zip_file_name(url)
-            dir_name      = zip_file_name.replace('.zip', '')
+                zip_file_name = self.get_zip_file_name(url)
+                dir_name      = zip_file_name.replace('.zip', '')
 
-            case1 = self.update_required and en_overwrite
-            case2 = not en_overwrite and not os.path.exists(f"{extract_dir}/{dir_name}")
+                case1 = self.update_required and en_overwrite
+                case2 = not en_overwrite and not os.path.exists(f"{extract_dir}/{dir_name}")
 
-            if case1 or case2:
-                print("下載中 ...")
-                self.signals.update_status.emit("下載中 ...")
-                with requests.get(url, stream=True) as r:
-                    try:
-                        total_length = int(r.headers.get('content-length'))
-                    except Exception:
-                        total_length = 36408565
-                    downloaded = 0
-                    with open(zip_file_name, 'wb') as f:
-                        for chunk in r.iter_content(chunk_size=8192):
-                            if chunk:
-                                downloaded += len(chunk)
-                                f.write(chunk)
-                                self.update_progress(downloaded, total_length)
+                if case1 or case2:
+                    log.info('download_file: downloading %s -> %s', url, zip_file_name)
+                    self.signals.update_status.emit("下載中 ...")
+                    with requests.get(url, stream=True, timeout=_HTTP_TIMEOUT) as r:
+                        r.raise_for_status()
+                        try:
+                            total_length = int(r.headers.get('content-length'))
+                        except Exception:
+                            total_length = 36408565
+                        downloaded = 0
+                        next_mark  = _LOG_EVERY_BYTES
+                        with open(zip_file_name, 'wb') as f:
+                            for chunk in r.iter_content(chunk_size=8192):
+                                if chunk:
+                                    downloaded += len(chunk)
+                                    f.write(chunk)
+                                    self.update_progress(downloaded, total_length)
+                                    if downloaded >= next_mark:
+                                        log.info('download_file progress: %d/%d bytes (%s)',
+                                                 downloaded, total_length, zip_file_name)
+                                        next_mark += _LOG_EVERY_BYTES
+                    log.info('download_file: download done %d bytes -> %s',
+                             downloaded, zip_file_name)
 
-                self.signals.update_status.emit("安裝中 ...")
-                result = self.extract_zip(zip_file_name, extract_dir)
+                    self.signals.update_status.emit("安裝中 ...")
+                    result = self.extract_zip(zip_file_name, extract_dir)
+                else:
+                    log.info('download_file: skip %s (already present / no update needed)', url)
+        except Exception:
+            log.exception('download_file FAILED (下載或安裝過程發生例外)')
+            self.signals.update_status.emit("下載失敗, 請確認網路連線 (詳見 log)")
+            self.signals.set_btn_enabled.emit(True)
+            return
 
         if result:
             self.signals.update_status.emit("安裝完成")
             self.set_current_version({'version': self.newest_version_info['version']})
             self.start()
         else:
+            log.error('download_file: extract failed, asking user to delete folder and re-download')
             self.signals.update_status.emit("安裝異常, 請將資料夾全部刪除並重新下載")
+            self.signals.set_btn_enabled.emit(True)
 
     def start(self):
         self.signals.update_release.emit(
@@ -714,9 +863,14 @@ class AutoUpdateGUI(QMainWindow):
         self.signals.set_btn_enabled.emit(True)
 
         self.target_directory = self.target_directory.replace('\\', '/')
-        print(self.exe_name, self.work_dir, self.target_directory)
         exe_path = f"{self.target_directory}/{self.exe_name}"
-        proc = subprocess.Popen([exe_path, self.work_dir], cwd=self.target_directory)
+        log.info('start: launching %s (work_dir=%s)', exe_path, self.work_dir)
+        try:
+            proc = subprocess.Popen([exe_path, self.work_dir], cwd=self.target_directory)
+        except Exception:
+            log.exception('start: failed to launch %s', exe_path)
+            self.signals.update_status.emit("啟動程式失敗, 請確認檔案是否存在 (詳見 log)")
+            return
         # start() 跑在 worker thread; 不直接 append (避免與 GUI thread 的 list 重建競態),
         # 改以 queued signal 把紀錄交給 GUI thread 處理
         record = {
@@ -725,18 +879,25 @@ class AutoUpdateGUI(QMainWindow):
             'work_dir': self.work_dir,
             'label': f"{self.tool_history}  ({self.work_dir})",
         }
+        log.info('start: launched pid=%s tool=%s', getattr(proc, 'pid', '?'), self.tool_history)
         self.signals.process_added.emit(record)
 
     def extract_zip(self, zip_file_name, extract_dir):
         result = True
+        log.info('extract_zip: %s -> %s', zip_file_name, extract_dir)
         try:
             with zipfile.ZipFile(zip_file_name, 'r') as zip_ref:
                 zip_ref.extractall(extract_dir)
+            log.info('extract_zip: done %s', zip_file_name)
         except Exception:
+            log.exception('extract_zip FAILED: %s -> %s', zip_file_name, extract_dir)
             result = False
 
-        if os.path.exists(zip_file_name):
-            os.remove(zip_file_name)
+        try:
+            if os.path.exists(zip_file_name):
+                os.remove(zip_file_name)
+        except Exception:
+            log.exception('extract_zip: failed to remove temp zip %s', zip_file_name)
 
         return result
 
@@ -845,7 +1006,11 @@ class AutoUpdateGUI(QMainWindow):
     def close_process(self, record):
         popen = record['popen']
         if popen.poll() is None:
-            popen.terminate()
+            log.info('close_process: terminating %s', record.get('label'))
+            try:
+                popen.terminate()
+            except Exception:
+                log.exception('close_process: terminate failed for %s', record.get('label'))
         self.refresh_process_panel()
 
     def closeEvent(self, event):
@@ -871,7 +1036,12 @@ class AutoUpdateGUI(QMainWindow):
             if reply == QMessageBox.StandardButton.Yes:
                 for r in running:
                     if r['popen'].poll() is None:
-                        r['popen'].terminate()
+                        log.info('closeEvent: terminating %s', r.get('label'))
+                        try:
+                            r['popen'].terminate()
+                        except Exception:
+                            # 單一程序關閉失敗不應擋住視窗關閉
+                            log.exception('closeEvent: terminate failed for %s', r.get('label'))
         event.accept()
 
 
@@ -927,8 +1097,9 @@ def create_loading_splash(app):
 
 
 if __name__ == "__main__":
-    # 清掉上次自我更新留下的舊 exe (*.old); 趁舊行程已退出, 放在最前面
-    self_update.cleanup_old()
+    log.info('=' * 60)
+    log.info('DV Utility starting (version=%s, log dir=%s)',
+             _read_app_version(), _get_log_dir())
 
     # Windows 工作列圖示需要設定 AppUserModelID
     windll.shell32.SetCurrentProcessExplicitAppUserModelID('Realtek.PCDV.DVUtility')
@@ -945,8 +1116,20 @@ if __name__ == "__main__":
         inst = AutoUpdateGUI(app)   # 下載設定檔 + 建立主視窗 (期間 splash 持續顯示)
         inst.show()
         app.processEvents()         # 先讓主視窗上屏, 再關閉 splash, 避免中間出現空畫面
+    except Exception:
+        log.exception('Fatal error during startup')
+        try:
+            QMessageBox.critical(
+                None, "啟動失敗",
+                "程式啟動時發生錯誤, 請確認網路連線後重試。\n\n"
+                f"詳細記錄檔:\n{_get_log_dir()}\\dv_utility.log",
+            )
+        except Exception:
+            pass
+        sys.exit(1)
     finally:
         splash.close()
         splash.deleteLater()
 
+    log.info('DV Utility main window shown, entering event loop')
     sys.exit(app.exec())

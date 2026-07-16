@@ -1,5 +1,4 @@
 import datetime
-import hashlib
 import json
 import os
 import re
@@ -27,14 +26,10 @@ from PIL import Image
 
 OUTPUT_NAME = 'DV_Utility'
 
-# 自我更新: app 端 (self_update.py) 會抓這顆 zip 的公開網址做比對/下載。
-GCS_ZIP_URL = 'https://storage.googleapis.com/realtek-pccdcic-dv/DVUtility/DV_Utility.zip'
-
 _here    = os.path.dirname(os.path.abspath(__file__))
 _png     = os.path.join(_here, 'realtek.png')
 _script  = os.path.join(_here, 'dv_utility.py')
 _verfile = os.path.join(_here, 'version.json')
-_pubfile = os.path.join(_here, 'publish_version.json')   # 上傳成 GCS 的 version.json
 
 # Set DEBUG_BUILD=True to keep the console window for troubleshooting.
 DEBUG_BUILD = False
@@ -68,15 +63,6 @@ def numeric_version(disp):
         raise SystemExit(f'version.json 版本格式無法解析: {disp!r}')
     y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
     return f'{y}.{mo}.{d}.{int(m.group(4) or 0)}'
-
-
-def sha256_of(path):
-    """檔案 sha256 (供自我更新驗證下載完整性)。"""
-    h = hashlib.sha256()
-    with open(path, 'rb') as f:
-        for chunk in iter(lambda: f.read(1 << 20), b''):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def make_ico_from_png(png_path, ico_path):
@@ -212,8 +198,8 @@ def main():
             os.remove(tmp_ico)
 
     # -- sign (選配) ---------------------------------------------------------
-    #    在下面 copy / zip 之前簽 dist 的 built_exe -> 所有派送副本 (含 zip 內供
-    #    自我更新用的 exe) 都帶同一份簽章。未設定憑證則自動略過 (見 sign_exe)。
+    #    在下面 copy / zip 之前簽 dist 的 built_exe -> 所有派送副本 (含 zip 內的 exe)
+    #    都帶同一份簽章。未設定憑證則自動略過 (見 sign_exe)。
     built_exe = os.path.join('dist', f'{OUTPUT_NAME}.exe')
     sign_exe(built_exe)
 
@@ -224,23 +210,11 @@ def main():
     shutil.copy2(built_exe, f'{OUTPUT_NAME}.exe')
 
     # -- zip -----------------------------------------------------------------
-    zip_path = f'{OUTPUT_NAME}.zip'
+    #    zip 僅供 IT / 使用者手動下載部署 (已移除自我更新, 不會自動推送給既有使用者)。
     shutil.make_archive(OUTPUT_NAME, 'zip', root_dir=OUTPUT_NAME, base_dir='.')
 
-    # -- 發佈資訊 (self_update.py 用來比版本/驗證下載) ------------------------
-    #    上傳成 GCS 的 DVUtility/version.json (見 upload_to_gcs.py)。
-    publish = {
-        'version': app_version,                 # 例: v20260604 / v20260604.1
-        'zip_url': GCS_ZIP_URL,
-        'size':    os.path.getsize(zip_path),
-        'sha256':  sha256_of(zip_path),
-    }
-    with open(_pubfile, 'w', encoding='utf-8') as f:
-        json.dump(publish, f, ensure_ascii=False, indent=2)
-        f.write('\n')
-
     print('完成:', f'{OUTPUT_NAME} {app_version}',
-          '->', f'{OUTPUT_NAME}.exe / {OUTPUT_NAME}.zip / publish_version.json')
+          '->', f'{OUTPUT_NAME}.exe / {OUTPUT_NAME}.zip')
 
 
 if __name__ == '__main__':

@@ -1,7 +1,10 @@
 # DV_Utility — 建置 / 簽章 / 發佈
 
-Realtek 內部 DV 工具:PySide6 GUI,以 **Nuitka onefile** 打包成單一 `DV_Utility.exe`,
-並具**自我更新**(app 端比對 GCS 上的 `version.json`,有新版就下載 zip、換檔重啟)。
+Realtek 內部 DV 工具:PySide6 GUI,以 **Nuitka onefile** 打包成單一 `DV_Utility.exe`。
+
+> **已移除自我更新**(下載 exe→換檔→detached 重啟)—— 那是最強的 dropper 誘因,會被防毒
+> 以 `Python/Packed.Nuitka_AGen.ED`「suspicious application」誤判。更新改由 IT 部署 /
+> 使用者重新下載 zip。(選工具時仍會下載並啟動所選 DV 工具,那不是自我更新。)
 
 ## 環境
 
@@ -15,7 +18,7 @@ python release_dv_utility.py
 ```
 
 依序執行:**進版**(寫 `version.json`,日期制 `vYYYYMMDD[.N]`)→ Nuitka onefile build →
-**(選配)簽章** → 打包 `DV_Utility.zip` → 產生 `publish_version.json`(自我更新用)。
+**(選配)簽章** → 打包 `DV_Utility.zip`。
 
 ## 簽章(選配 — 需 code-signing 憑證)
 
@@ -47,10 +50,10 @@ python release_dv_utility.py    # build 後自動 signtool sign + verify /pa
 python upload_to_gcs.py
 ```
 
-覆蓋公開 bucket 上的 `DVUtility/DV_Utility.zip` 與 `DVUtility/version.json`。
+覆蓋公開 bucket 上的 `DVUtility/DV_Utility.zip`。
 
-> 🚨 **這是正式發佈,不是私下測試。** 上傳後**所有使用者的自我更新器都會自動下載並安裝**
-> 這個版本。只在確定要對所有人發佈時才執行。
+> 🚨 **這是正式發佈,不是私下測試。** 已移除自我更新,上傳**不會**自動推送給既有使用者;
+> 使用者需重新下載 zip / 由 IT 重新部署才會拿到新版。只在確定要對所有人發佈時才執行。
 
 ## 發佈流程(等憑證到位後)
 
@@ -59,8 +62,7 @@ python upload_to_gcs.py
 3. `python release_dv_utility.py` → 確認輸出有「簽章: 完成並通過驗證」、
    或用 檔案內容 → 數位簽章 分頁檢查 exe。
 4. `python upload_to_gcs.py` 發佈。
-5. 把 `self_update.py` 的 `VERIFY_DOWNLOAD_SIGNATURE` 改為 `True`(拒絕未簽章/被竄改的更新)。
-6. 請 IT 把 SentinelOne 排除改為**依簽發者憑證**(一勞永逸,不必逐版加 hash)。
+5. 請 IT 把 SentinelOne 排除改為**依簽發者憑證**(一勞永逸,不必逐版加 hash)。
 
 ## SentinelOne 誤判
 
