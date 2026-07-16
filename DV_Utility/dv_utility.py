@@ -461,6 +461,21 @@ class AutoUpdateGUI(QMainWindow):
         self.release_note_frame.hide()
         main_layout.addWidget(self.release_note_frame)
 
+        # ---- 更新提示橫幅 (預設隱藏; 發現新版時由 _slot_update_available 顯示) ----
+        self.update_frame = QFrame()
+        uf_layout = QVBoxLayout(self.update_frame)
+        self.update_label = QLabel("")
+        self.update_label.setFont(default_font)
+        self.update_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.update_label.setWordWrap(True)
+        uf_layout.addWidget(self.update_label)
+        self.update_button = QPushButton("一鍵更新並重啟")
+        self.update_button.setFont(default_font)
+        self.update_button.clicked.connect(self.on_update_clicked)
+        uf_layout.addWidget(self.update_button)
+        self.update_frame.hide()
+        main_layout.addWidget(self.update_frame)
+
         main_layout.addStretch()
 
         # 版面: [左側(固定寬)] [固定間距] [彈性 stretch] [右側面板(固定寬)]
@@ -615,6 +630,47 @@ class AutoUpdateGUI(QMainWindow):
                 log.info('update-check: no update (or not packaged)')
         except Exception:
             log.exception('update-check failed')
+
+    def _slot_update_available(self, info):
+        """GUI thread: 顯示更新橫幅 (版本 + release note) 與一鍵按鈕。"""
+        self._update_info = info
+        latest = info.get('version', '')
+        note = info.get('release_note', '')
+        text = f"發現新版本 {latest} (目前 {self.version})"
+        if note:
+            text += f"\n{note}"
+        self.update_label.setText(text)
+        self.update_frame.show()
+
+    def on_update_clicked(self):
+        """啟動 dv_updater.exe (下載/換裝/重啟由它負責), 隨即結束本程式讓它替換。"""
+        info = self._update_info
+        target = update_check.launcher_exe()
+        if not info or not target:
+            QMessageBox.warning(self, "無法更新",
+                                "此為開發模式或找不到可更新的執行檔 (需打包後執行)。")
+            return
+        updater = os.path.join(os.path.dirname(target), 'dv_updater.exe')
+        if not os.path.isfile(updater):
+            QMessageBox.warning(self, "無法更新", f"找不到更新器:\n{updater}")
+            return
+        args = [
+            updater,
+            '--version', info.get('version', ''),
+            '--zip-url', info.get('zip_url', ''),
+            '--sha256', info.get('sha256', ''),
+            '--target', target,
+            '--parent-pid', str(os.getpid()),
+        ]
+        try:
+            # 一般子行程 (無 detached 旗標); Windows 上子行程於父行程退出後仍繼續執行。
+            subprocess.Popen(args, cwd=os.path.dirname(target), close_fds=True)
+        except Exception as e:
+            log.exception('failed to launch updater')
+            QMessageBox.warning(self, "無法更新", f"啟動更新器失敗:\n{e}")
+            return
+        log.info('updater launched (target=%s); quitting for swap', target)
+        self.app.quit()
 
     # ------------------------------------------------------------------ #
     #  Hotkey

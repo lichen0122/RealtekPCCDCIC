@@ -4,7 +4,9 @@
 真正的下載換裝重啟由獨立的 dv_updater.exe 負責。
 """
 
+import os
 import re
+import sys
 
 import requests
 
@@ -46,3 +48,19 @@ def check_latest_version(current_version, timeout=10):
     if latest and is_newer(latest, current_version):
         return info
     return None
+
+
+def launcher_exe():
+    """使用者啟動的那顆 DV_Utility.exe 絕對路徑 (= 要被更新器替換的本體)。
+
+    onefile 執行期 sys.executable 指向解壓快取, 非 launcher; 需用 __compiled__.original_argv0。
+    非打包 / 抓不到合法 .exe -> None。
+    """
+    comp = globals().get('__compiled__')
+    if comp is None:
+        return None
+    argv0 = getattr(comp, 'original_argv0', None) or sys.argv[0]
+    if not argv0:
+        return None
+    path = os.path.realpath(os.path.abspath(argv0))
+    return path if path.lower().endswith('.exe') else None
