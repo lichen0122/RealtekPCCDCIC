@@ -21,3 +21,28 @@ def _version_key(v):
 def is_newer(latest, current):
     """latest 是否比 current 新 (皆為 vYYYYMMDD[.N])。"""
     return _version_key(latest) > _version_key(current)
+
+
+def _is_packaged():
+    """是否為 Nuitka 打包後執行 (非 `python dv_utility.py` 開發模式)。"""
+    return globals().get('__compiled__') is not None
+
+
+def check_latest_version(current_version, timeout=10):
+    """GET version.json 比對目前版本; 有更新回 info dict, 否則 None。
+
+    info = {"version","zip_url","sha256","size","release_note"}
+    非打包 / 任何網路或解析錯誤 (含 manifest 尚未發佈的 404) -> None。
+    """
+    if not _is_packaged():
+        return None
+    try:
+        resp = requests.get(VERSION_URL, timeout=timeout)
+        resp.raise_for_status()
+        info = resp.json()
+    except Exception:
+        return None
+    latest = info.get('version', '')
+    if latest and is_newer(latest, current_version):
+        return info
+    return None
