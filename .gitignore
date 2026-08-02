@@ -20,3 +20,7 @@ DV_Utility/hsm/
 WebUtility/hsm/
 hsm/
 hsm.config.yaml
+# ctc_sign 這一包自帶的簽署 CLI 與 token 設定 (只忽略機密, 保留 ctc_sign.py / README.md)
+ctc_sign/hsm-cli-windows-x64.exe
+ctc_sign/hsm.config.yaml
+/ctc_sign
