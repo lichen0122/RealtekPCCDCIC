@@ -193,23 +193,94 @@ def sign_exe(path):
     return True
 
 
+def _resolve_ctc_params(hsm_dir=None):
+    """把 DV_Utility 既有的 DVUTIL_HSM_* env 橋接成新版 ctc_sign 需要的參數。
+
+    新版 ctc_sign 讀 HSM_*/參數 (不再讀 DVUTIL_HSM_*)。這裡集中解析一次, 供送簽前置
+    檢查 (_check_ctc_prereqs) 與實際簽署 (_sign_both) 共用, 兩邊看到的設定必然一致。
+    hsm_dir 可注入 (測試用), 預設為本檔同層的 hsm/。回傳 dict:
+    hsm_dir / hsm_cli / config / server / user / token / uuid。
+
+    認證擇一: config 設定檔 或 server+token (user 選配) — 與舊 _global_flags 同義。
+    hsm_cli / config 未由 env 指定時, 回退到 hsm/ 內自帶檔 (存在才回退, 否則留 None
+    交給 ctc_sign 自動探索同層/PATH)。
+    """
+    if hsm_dir is None:
+        hsm_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hsm')
+    server = os.environ.get('DVUTIL_HSM_SERVER')
+    user   = os.environ.get('DVUTIL_HSM_USER')
+    token  = os.environ.get('DVUTIL_HSM_TOKEN')
+    hsm_cli = os.environ.get('DVUTIL_HSM_CLI')
+    if not hsm_cli:                              # 未指定 -> 用 hsm/ 內自帶; 沒有再交給 ctc_sign 自動找 (同層/PATH)
+        cand = os.path.join(hsm_dir, 'hsm-cli-windows-x64.exe')
+        hsm_cli = cand if os.path.isfile(cand) else None
+    config = os.environ.get('DVUTIL_HSM_CONFIG')
+    if not config and not (server and token):   # 認證擇一: 設定檔 或 server+token
+        cand = os.path.join(hsm_dir, 'hsm.config.yaml')
+        config = cand if os.path.isfile(cand) else None
+    uuid = os.environ.get('DVUTIL_HSM_UUID') or os.environ.get('HSM_UUID')
+    return {'hsm_dir': hsm_dir, 'hsm_cli': hsm_cli, 'config': config,
+            'server': server, 'user': user, 'token': token, 'uuid': uuid}
+
+
+def _check_ctc_prereqs(hsm_dir=None):
+    """CTC 送簽前置檢查 (fail-fast): 在耗時的 Nuitka build 之前先確認 hsm-cli / uuid /
+    認證來源齊全, 缺任一項就中止 (SystemExit) 並一次列出所有缺項。
+
+    目的: 避免白 build 一整輪 (甚至白進一次版) 才在送簽當下發現設定漏了。齊全時印一行
+    提示 (送簽會先跑 OPSWAT 預檢) 後正常返回。hsm_dir 可注入 (測試用)。
+    """
+    import ctc_sign
+    p = _resolve_ctc_params(hsm_dir)
+    problems = []
+    try:
+        ctc_sign._find_cli(p['hsm_cli'])
+    except ctc_sign.CtcError as e:
+        problems.append(f'找不到 hsm-cli: {e}')
+    if not p['uuid']:
+        problems.append('缺簽章 uuid (請設 DVUTIL_HSM_UUID 或 HSM_UUID)')
+    if not (p['config'] or (p['server'] and p['token'])):
+        problems.append('缺 CTC 認證: 需 hsm/hsm.config.yaml, 或 DVUTIL_HSM_SERVER + DVUTIL_HSM_TOKEN')
+    if problems:
+        raise SystemExit('CTC 送簽前置檢查未過 (build 前中止):\n  - ' + '\n  - '.join(problems))
+    print('CTC 送簽前置檢查通過 (送簽時會先跑 OPSWAT 預檢, 再送 hsm-cli; 半自動流程可能需 FEDEX 核准)')
+
+
 def _sign_both(built_exe, built_updater, sign_ctc):
-    """簽兩顆 exe: sign_ctc=True 走 CTC (hsm-cli, 半自動, 等主管 FEDEX 核准);
-    否則走既有 signtool sign_exe (未設憑證則略過)。"""
+    """簽兩顆 exe: sign_ctc=True 走 CTC (hsm-cli, 半自動; 送簽前先跑 OPSWAT 預檢,
+    再等主管 FEDEX 核准); 否則走既有 signtool sign_exe (未設憑證則略過)。"""
     if not sign_ctc:
         sign_exe(built_updater)
         sign_exe(built_exe)
         return
     import ctc_sign
+    p = _resolve_ctc_params()   # 與 build 前 _check_ctc_prereqs 用同一份解析結果
+    # 把內建的送簽前 OPSWAT 預檢指向 hsm/ (否則預檢只會找 ctc_sign.py 同層 = repo root)。
+    # 存在才指過去 (指向不存在的路徑會擋掉 ctc_sign 自身的同層自動探索; 沒放檔時保持
+    # 不設 -> 預檢自動略過 = fail-open)。
+    fs_cli = os.path.join(p['hsm_dir'], 'fsanitize-windows-x64.exe')
+    fs_cfg = os.path.join(p['hsm_dir'], 'file-sanitizer.config.yaml')
+    if os.path.isfile(fs_cli):
+        os.environ.setdefault('FSANITIZE_CLI', fs_cli)
+    if os.path.isfile(fs_cfg):
+        os.environ.setdefault('FSANITIZE_CONFIG', fs_cfg)
     for exe in (built_updater, built_exe):   # 更新器少改, 但一次發佈仍一起簽較單純
-        print(f'CTC 簽署 {exe} … (送簽後請直屬主管到 FEDEX 核准)')
+        print(f'CTC 簽署 {exe} … (送簽前先跑 OPSWAT 預檢; 送簽後如需核准請至 FEDEX)')
         tmp = exe + '.signed'
-        ctc_sign.sign_file(exe, out_path=tmp)
+        ctc_sign.sign_file(exe, out_path=tmp, uuid=p['uuid'], hsm_cli=p['hsm_cli'],
+                           config=p['config'], server=p['server'], user=p['user'],
+                           token=p['token'])
         os.replace(tmp, exe)
         print(f'CTC 簽署完成 -> {exe}')
 
 
-def main(sign_ctc=False):
+def main(sign_ctc=True):
+    # -- CTC 送簽前置檢查 (預設送簽; 在進版/build 之前 fail-fast) --------------
+    #    缺 hsm-cli / uuid / 認證就中止, 免得白 build 一輪 (甚至白進一次版)。
+    #    走 --no-sign-ctc 時跳過 (退回 signtool, 未設憑證則產出未簽 build)。
+    if sign_ctc:
+        _check_ctc_prereqs()
+
     # -- 進版 (先進版, 再打包) ------------------------------------------------
     app_version = bump_version(_verfile)          # 例: v20260604
     num_version = numeric_version(app_version)     # 例: 2026.6.4.0
@@ -284,7 +355,7 @@ def main(sign_ctc=False):
             os.remove(tmp_ico)
     built_updater = os.path.join('dist', f'{UPDATER_NAME}.exe')
 
-    # 簽章: --sign-ctc 走 CTC (hsm-cli); 否則走 signtool sign_exe (未設憑證則略過)。
+    # 簽章: 預設走 CTC (hsm-cli); --no-sign-ctc 則退回 signtool sign_exe (未設憑證則略過)。
     _sign_both(built_exe, built_updater, sign_ctc)
 
     # -- package -------------------------------------------------------------
@@ -324,8 +395,13 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser(description='DV_Utility release / manifest 工具')
     ap.add_argument('--manifest-only', action='store_true',
                     help='不重建; 只依現有 DV_Utility.zip 重算 manifest (簽章重打包後用)')
-    ap.add_argument('--sign-ctc', action='store_true',
-                    help='build 後用 CTC (hsm-cli) 簽兩顆 exe (需 DVUTIL_HSM_* 設定; 會等主管 FEDEX 核准)')
+    # CTC 送簽現為預設: build 前先做前置檢查 (缺 hsm-cli/uuid/認證即中止), 送簽時先跑
+    # OPSWAT 預檢, 再送 hsm-cli (半自動, 可能需主管 FEDEX 核准)。需 DVUTIL_HSM_* 設定。
+    ap.add_argument('--no-sign-ctc', dest='sign_ctc', action='store_false',
+                    help='不走 CTC 送簽; 退回既有 signtool 簽章 (未設 DVUTIL_SIGN* 憑證則產出未簽 build)')
+    ap.add_argument('--sign-ctc', dest='sign_ctc', action='store_true',
+                    help='(相容保留, 現已是預設) build 後用 CTC (hsm-cli) 簽兩顆 exe')
+    ap.set_defaults(sign_ctc=True)
     ns = ap.parse_args()
     if ns.manifest_only:
         _regen_manifest_only()

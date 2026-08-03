@@ -37,11 +37,15 @@ def test_classify_status_terminal_and_progress():
     assert ctc_sign.classify_status('got ERROR from server') == 'failed'
 
 
-# --- sign_file (mock hsm-cli via _run) --------------------------------------
+# --- sign_file (mock hsm-cli via CtcSigner._run) ----------------------------
+# The new ctc_sign drives hsm-cli through the CtcSigner._run *method*
+# (signature (self, args)), so the fake is patched onto the class. Each test
+# passes an existing hsm_cli (so _find_cli succeeds in __init__) and
+# presign=False (isolate the signing flow from the OPSWAT pre-check).
 def _install_fake_run(monkeypatch, statuses, signed_zip_src):
     calls = []
 
-    def fake_run(args):
+    def fake_run(self, args):
         calls.append(list(args))
         sub = args[1] if len(args) > 1 else ''
         if sub == 'create':
@@ -57,7 +61,7 @@ def _install_fake_run(monkeypatch, statuses, signed_zip_src):
             return 0, '{"ok":true}'
         return 1, 'unexpected'
 
-    monkeypatch.setattr(ctc_sign, '_run', fake_run)
+    monkeypatch.setattr(ctc_sign.CtcSigner, '_run', fake_run)
     monkeypatch.setattr(ctc_sign.time, 'sleep', lambda s: None)
     return calls
 
@@ -68,6 +72,8 @@ def test_sign_file_happy(tmp_path, monkeypatch):
     signed_src = tmp_path / 'src.zip'
     with zipfile.ZipFile(signed_src, 'w') as z:
         z.writestr('DV_Utility.exe', b'SIGNED-BYTES')
+    fake_cli = tmp_path / 'hsm-cli.exe'
+    fake_cli.write_bytes(b'x')
 
     statuses = iter(['{"status":"INIT"}', '{"status":"OPSWAT"}',
                      '{"status":"FEDEX"}', '{"status":"SUCCESS"}'])
@@ -75,6 +81,7 @@ def test_sign_file_happy(tmp_path, monkeypatch):
 
     out_path = str(tmp_path / 'signed.exe')
     result = ctc_sign.sign_file(str(exe), uuid='u', out_path=out_path,
+                                hsm_cli=str(fake_cli), presign=False,
                                 poll_interval=0, log=lambda *a: None)
     assert result == out_path
     assert open(out_path, 'rb').read() == b'SIGNED-BYTES'
@@ -87,17 +94,22 @@ def test_sign_file_happy(tmp_path, monkeypatch):
 def test_sign_file_failed_status(tmp_path, monkeypatch):
     exe = tmp_path / 'DV_Utility.exe'
     exe.write_bytes(b'x')
+    fake_cli = tmp_path / 'hsm-cli.exe'
+    fake_cli.write_bytes(b'x')
     statuses = iter(['{"status":"OPSWAT"}', '{"status":"FAIL"}'])
     _install_fake_run(monkeypatch, statuses, tmp_path / 'unused.zip')
     with pytest.raises(ctc_sign.CtcError):
-        ctc_sign.sign_file(str(exe), uuid='u', poll_interval=0, log=lambda *a: None)
+        ctc_sign.sign_file(str(exe), uuid='u', hsm_cli=str(fake_cli),
+                           presign=False, poll_interval=0, log=lambda *a: None)
 
 
 def test_sign_file_timeout(tmp_path, monkeypatch):
     exe = tmp_path / 'DV_Utility.exe'
     exe.write_bytes(b'x')
+    fake_cli = tmp_path / 'hsm-cli.exe'
+    fake_cli.write_bytes(b'x')
 
-    def fake_run(args):
+    def fake_run(self, args):
         sub = args[1]
         if sub == 'create':
             return 0, '{"id":"i","status":"INIT"}'
@@ -107,17 +119,22 @@ def test_sign_file_timeout(tmp_path, monkeypatch):
             return 0, '{"status":"FEDEX"}'   # 永遠 pending -> 應逾時
         return 1, ''
 
-    monkeypatch.setattr(ctc_sign, '_run', fake_run)
+    monkeypatch.setattr(ctc_sign.CtcSigner, '_run', fake_run)
     monkeypatch.setattr(ctc_sign.time, 'sleep', lambda s: None)
     with pytest.raises(ctc_sign.CtcError):
-        ctc_sign.sign_file(str(exe), uuid='u', poll_interval=1, timeout=2, log=lambda *a: None)
+        ctc_sign.sign_file(str(exe), uuid='u', hsm_cli=str(fake_cli),
+                           presign=False, poll_interval=1, timeout=2, log=lambda *a: None)
 
 
-def test_hsm_cli_path_env(tmp_path, monkeypatch):
+# --- _find_cli (hsm-cli discovery) ------------------------------------------
+# Replaces the old test_hsm_cli_path_env: the new module locates hsm-cli via
+# _find_cli() reading the HSM_CLI env (was DVUTIL_HSM_CLI). Same shape — an
+# existing path is returned, a missing one raises CtcError.
+def test_find_cli_env(tmp_path, monkeypatch):
     fake = tmp_path / 'hsm-cli.exe'
     fake.write_bytes(b'x')
-    monkeypatch.setenv('DVUTIL_HSM_CLI', str(fake))
-    assert ctc_sign.hsm_cli_path() == str(fake)
-    monkeypatch.setenv('DVUTIL_HSM_CLI', str(tmp_path / 'nope.exe'))
+    monkeypatch.setenv('HSM_CLI', str(fake))
+    assert ctc_sign._find_cli() == str(fake)
+    monkeypatch.setenv('HSM_CLI', str(tmp_path / 'nope.exe'))
     with pytest.raises(ctc_sign.CtcError):
-        ctc_sign.hsm_cli_path()
+        ctc_sign._find_cli()
