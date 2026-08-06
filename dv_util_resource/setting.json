@@ -15,8 +15,6 @@
 	"AudioDataPath - Visio Tracer":                     "https://storage.googleapis.com/cyvisionbot_test_2/visio_debug/version_ctrl/version_RTK.json",
 	"ROM Code Convertion":                              "https://storage.googleapis.com/realtek-pccdcic-dv/RomCodeConvertion/rom_code_convertion_version.json",
 	"ManPower - CardNote":                              "https://storage.googleapis.com/realtek-pccdcic-dv/CardNote/card_note_version.json",
-	"ManPower - CardNoteIntegration":                   "https://storage.googleapis.com/realtek-pccdcic-dv/CardNoteIntegration/card_note_integration_version.json",
 	"Design - Gate Level Design":                       "https://storage.googleapis.com/realtek-pccdcic-dv/GateLevelDesign/version_gate_level_design.json",
-	"Design - Wave Json Design":                        "https://storage.googleapis.com/realtek-pccdcic-dv/WaveJsonDesign/version_wave_json_design.json",
 	"AI - PCDIC Skills":                                "https://storage.googleapis.com/realtek-pccdcic-dv/PCDICskills/version_pcdic_skills.json"
 }
