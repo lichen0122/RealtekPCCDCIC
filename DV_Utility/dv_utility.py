@@ -166,6 +166,9 @@ class AutoUpdateGUI(QMainWindow):
     url       = ''
     version   = _read_app_version()
 
+    # 下載/安裝進行中 (download_file worker thread 寫, closeEvent 於 GUI thread 讀)
+    _install_busy = False
+
     # 右側面板寬度 (展開 / 縮合)。展開寬度須 >= 表格 minimumWidth(360) + 內距留白
     PANEL_EXPANDED_W  = 400
     PANEL_COLLAPSED_W = 36
@@ -181,8 +184,7 @@ class AutoUpdateGUI(QMainWindow):
         self.ensure_resource_files()
 
         try:
-            with open(self.setting_file, "r") as f:
-                self.setting = json.loads(f.read())
+            self.setting = self.load_setting()
             log.info('loaded setting.json (%d tools)', len(self.setting))
         except Exception:
             log.exception('failed to load setting.json: %s', self.setting_file)
@@ -235,6 +237,12 @@ class AutoUpdateGUI(QMainWindow):
         if not os.path.exists(self.tool_history_file):
             with open(self.tool_history_file, 'w') as f:
                 json.dump("", f)
+
+    def load_setting(self):
+        # setting.json 由 download_from_git 以 UTF-8 原始 bytes 落地; 讀取須明示編碼 —
+        # zh-TW 機器預設 cp950, 內容一旦出現中文就會 UnicodeDecodeError (啟動失敗) 或亂碼
+        with open(self.setting_file, "r", encoding="utf-8") as f:
+            return json.loads(f.read())
 
     def get_install_dir(self):
         home_path = Path.home() / 'PCDV'
@@ -821,7 +829,9 @@ class AutoUpdateGUI(QMainWindow):
                      self.newest_version_info.get('version'))
 
             self.signals.update_status.emit("下載更新")
-            threading.Thread(target=self.download_file).start()
+            # daemon: 使用者關窗後, 行程不得為了等下載跑完而殘留背景 (非 daemon 會被
+            # interpreter shutdown join 住, 之後還會憑空 Popen 工具視窗)
+            threading.Thread(target=self.download_file, daemon=True).start()
         except Exception:
             log.exception('check_for_update FAILED (target=%s)', getattr(self, 'target', '?'))
             self.signals.update_status.emit("檢查更新失敗, 請確認網路連線 (詳見 log)")
@@ -876,7 +886,11 @@ class AutoUpdateGUI(QMainWindow):
         log.info('get_extract_info: %d item(s) to process', len(self.extract_info))
 
     def download_file(self):
-        result = True
+        # 進行中旗標: closeEvent 據此警告 — daemon 下載執行緒會在關窗時被凍結,
+        # 可能留下解壓到一半的目錄 (overwrite=False 項目會被 case2 誤判為已安裝)
+        self._install_busy = True
+        result   = True
+        zip_path = None
         try:
             for url, extract_dir, en_overwrite in self.extract_info:
                 log.info('download_file: url=%s extract_dir=%s overwrite=%s',
@@ -884,12 +898,19 @@ class AutoUpdateGUI(QMainWindow):
 
                 zip_file_name = self.get_zip_file_name(url)
                 dir_name      = zip_file_name.replace('.zip', '')
+                # zip 暫存於 ~/PCDV 下的絕對路徑 + 唯一暫存名:
+                #  - 裸檔名會落在行程 CWD (捷徑「開始位置」、唯讀共享、System32...),
+                #    部分使用者的 CWD 不可寫, open() 直接 Errno 13 (2026-08 使用者災情)
+                #  - 不可暫存在 extract_dir: work_dir 項目會把暫存檔寫進使用者專案
+                #    目錄, 同名檔案 (如 input.zip) 會被截斷後刪除
+                zip_path = os.path.join(self.get_install_dir(),
+                                        f'{zip_file_name}.{os.getpid()}.part')
 
                 case1 = self.update_required and en_overwrite
                 case2 = not en_overwrite and not os.path.exists(f"{extract_dir}/{dir_name}")
 
                 if case1 or case2:
-                    log.info('download_file: downloading %s -> %s', url, zip_file_name)
+                    log.info('download_file: downloading %s -> %s', url, zip_path)
                     self.signals.update_status.emit("下載中 ...")
                     with requests.get(url, stream=True, timeout=_HTTP_TIMEOUT) as r:
                         r.raise_for_status()
@@ -899,7 +920,7 @@ class AutoUpdateGUI(QMainWindow):
                             total_length = 36408565
                         downloaded = 0
                         next_mark  = _LOG_EVERY_BYTES
-                        with open(zip_file_name, 'wb') as f:
+                        with open(zip_path, 'wb') as f:
                             for chunk in r.iter_content(chunk_size=8192):
                                 if chunk:
                                     downloaded += len(chunk)
@@ -910,18 +931,32 @@ class AutoUpdateGUI(QMainWindow):
                                                  downloaded, total_length, zip_file_name)
                                         next_mark += _LOG_EVERY_BYTES
                     log.info('download_file: download done %d bytes -> %s',
-                             downloaded, zip_file_name)
+                             downloaded, zip_path)
 
                     self.signals.update_status.emit("安裝中 ...")
-                    result = self.extract_zip(zip_file_name, extract_dir)
+                    # 任一項目失敗都須讓整體 result=False (不可被後面項目的成功蓋掉),
+                    # 否則版本檔照寫, 壞掉的安裝永遠不會再被重抓
+                    if not self.extract_zip(zip_path, extract_dir):
+                        result = False
                 else:
                     log.info('download_file: skip %s (already present / no update needed)', url)
+        except PermissionError:
+            # 寫檔被拒與網路無關, 須分開講清楚, 使用者/IT 才不會往網路方向查
+            log.exception('download_file FAILED (寫檔被拒; cwd=%s)', os.getcwd())
+            self._discard_temp_zip(zip_path)
+            self.signals.update_status.emit("下載失敗: 檔案寫入被拒 (權限不足, 詳見 log)")
+            self.signals.set_btn_enabled.emit(True)
+            self._install_busy = False
+            return
         except Exception:
             log.exception('download_file FAILED (下載或安裝過程發生例外)')
+            self._discard_temp_zip(zip_path)
             self.signals.update_status.emit("下載失敗, 請確認網路連線 (詳見 log)")
             self.signals.set_btn_enabled.emit(True)
+            self._install_busy = False
             return
 
+        self._install_busy = False
         if result:
             self.signals.update_status.emit("安裝完成")
             self.set_current_version({'version': self.newest_version_info['version']})
@@ -960,6 +995,17 @@ class AutoUpdateGUI(QMainWindow):
         }
         log.info('start: launched pid=%s tool=%s', getattr(proc, 'pid', '?'), self.tool_history)
         self.signals.process_added.emit(record)
+
+    @staticmethod
+    def _discard_temp_zip(zip_path):
+        """best-effort 移除下載暫存檔 (半截檔不可殘留; 失敗僅記 log, 不擋錯誤回報)。"""
+        if not zip_path:
+            return
+        try:
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+        except OSError:
+            log.warning('could not remove temp zip %s', zip_path, exc_info=True)
 
     def extract_zip(self, zip_file_name, extract_dir):
         result = True
@@ -1096,6 +1142,21 @@ class AutoUpdateGUI(QMainWindow):
         # 先停掉輪詢, 避免確認對話框 (內含巢狀事件迴圈) 期間還在重建表格 / 縮放視窗
         self.process_timer.stop()
 
+        # 安裝進行中: daemon 下載執行緒會在關窗時被凍結, overwrite=False 項目
+        # 若解壓到一半, 之後會被 case2 誤判為已安裝且永不自我修復 — 先警告
+        if self._install_busy:
+            reply = QMessageBox.question(
+                self,
+                "安裝進行中",
+                "工具正在下載 / 安裝中, 現在關閉可能造成安裝不完整。\n確定要關閉嗎？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                self.process_timer.start(1500)   # 取消關閉 -> 恢復輪詢
+                event.ignore()
+                return
+
         running = [r for r in self.processes if r['popen'].poll() is None]
         if running:
             names = "\n".join(f"  • {r['label']}" for r in running)
@@ -1177,8 +1238,9 @@ def create_loading_splash(app):
 
 if __name__ == "__main__":
     log.info('=' * 60)
-    log.info('DV Utility starting (version=%s, log dir=%s)',
-             _read_app_version(), _get_log_dir())
+    # cwd 一併記錄: 相對路徑類災情 (如寫檔 Errno 13) 一眼就能看出啟動情境
+    log.info('DV Utility starting (version=%s, log dir=%s, cwd=%s)',
+             _read_app_version(), _get_log_dir(), os.getcwd())
 
     # 清掉上次更新留下的舊 exe 備份 (*.bak); 趁舊行程已退出, 放在最前面
     try:
