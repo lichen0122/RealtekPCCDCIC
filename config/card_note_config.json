@@ -241,5 +241,29 @@
         "Coverage",
         "IP Verification",
         "Sys. Verification"
+    ],
+    "ALC766B_DB130_RL7131": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
+    ],
+    "ALC766B_LV_RL7132": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
+    ],
+    "ALC766B_HV_RL7133": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
     ]
 }
