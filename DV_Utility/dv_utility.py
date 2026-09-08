@@ -3,10 +3,10 @@ from ctypes import windll
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QComboBox, QListView, QPushButton,
     QProgressBar, QGridLayout, QVBoxLayout, QHBoxLayout, QFrame, QFileDialog,
-    QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView
+    QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit
 )
 from PySide6.QtCore import Qt, Signal, QObject, QTimer
-from PySide6.QtGui import QFont, QIcon, QShortcut, QKeySequence, QPixmap
+from PySide6.QtGui import QFont, QIcon, QShortcut, QKeySequence, QPixmap, QTextOption
 import threading
 import requests
 import json
@@ -173,6 +173,9 @@ class AutoUpdateGUI(QMainWindow):
     PANEL_EXPANDED_W  = 400
     PANEL_COLLAPSED_W = 36
 
+    # 更新訊息 (release note) 顯示高度上限 (行數); 超過改為捲動, 視窗高度才不會失控
+    NOTE_MAX_LINES = 8
+
     def __init__(self, app):
         super().__init__()
         self.app       = app
@@ -284,6 +287,58 @@ class AutoUpdateGUI(QMainWindow):
         view.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         # 開啟滑鼠追蹤, QSS 的 ::item:hover 才會在游標移過選項時即時觸發
         view.setMouseTracking(True)
+
+    def _make_note_view(self):
+        """建立更新訊息 (release note) 顯示區塊: 唯讀、自動換行、超高改捲動。
+
+        原本用 QLabel, 行數多會把視窗撐到超出螢幕, 單行過寬 (URL / 路徑) 又因左側
+        固定寬 800 直接被裁掉, 看起來像顯示 BUG。改用透明無框的唯讀 QTextEdit:
+        寬度內自動換行 (無空白的長字串也能斷行), 高度依內容調整但有上限
+        (NOTE_MAX_LINES), 超過出現捲軸, 訊息再多再寬都完整可讀。"""
+        view = QTextEdit()
+        view.setReadOnly(True)
+        view.setFont(self.default_font)
+        view.setFrameShape(QFrame.Shape.NoFrame)
+        view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        opt = view.document().defaultTextOption()
+        opt.setAlignment(Qt.AlignmentFlag.AlignHCenter)   # 沿用原 QLabel 的置中外觀
+        opt.setWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        view.document().setDefaultTextOption(opt)
+        view.setStyleSheet(
+            "QTextEdit { background: transparent; color: #FFFFFF; border: none; }"
+            # macOS 風格浮層捲軸 (與下拉選單彈窗同款)
+            "QScrollBar:vertical { background: transparent; width: 10px;"
+            "           margin: 4px 3px 4px 0px; border: none; }"
+            "QScrollBar::handle:vertical { background: rgba(255, 255, 255, 0.22);"
+            "           min-height: 28px; border: none; border-radius: 3px; margin: 0px 2px 0px 2px; }"
+            "QScrollBar::handle:vertical:hover { background: rgba(255, 255, 255, 0.38); }"
+            "QScrollBar::handle:vertical:pressed { background: #0A84FF; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+            "           height: 0px; width: 0px; background: none; border: none; }"
+            "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }"
+        )
+        view.hide()   # 空白時不佔版面 (QTextEdit 預設 sizeHint 很高); 由 _set_note_text 控制
+        return view
+
+    def _set_note_text(self, view, text):
+        """設定更新訊息內容, 並把高度調成剛好容納內容 (上限 NOTE_MAX_LINES 行)。"""
+        view.setPlainText(text)
+        if not text:
+            view.hide()
+            return
+        doc = view.document()
+        # 量高度用: 以實際可用寬度換行後取得內容高度 (尚未 show 時 viewport 寬度不可靠,
+        # 退回左側固定寬估算; 之後 show 出來的寬度只會更寬或相同, 不會少算)
+        width = view.viewport().width()
+        if width <= 1:
+            width = self.LEFT_W - 24
+        doc.setTextWidth(width)
+        max_h = view.fontMetrics().lineSpacing() * self.NOTE_MAX_LINES + 12
+        need  = int(doc.size().height()) + 10
+        view.setFixedHeight(min(need, max_h))
+        view.show()
 
     def init_window(self):
         self.setWindowTitle(f'PCDV DV Utility {self.version}')
@@ -461,10 +516,8 @@ class AutoUpdateGUI(QMainWindow):
         self.version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rn_layout.addWidget(self.version_label)
 
-        self.release_note_label = QLabel("")
-        self.release_note_label.setFont(default_font)
-        self.release_note_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        rn_layout.addWidget(self.release_note_label)
+        self.release_note_view = self._make_note_view()
+        rn_layout.addWidget(self.release_note_view)
 
         self.release_note_frame.hide()
         main_layout.addWidget(self.release_note_frame)
@@ -477,6 +530,8 @@ class AutoUpdateGUI(QMainWindow):
         self.update_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.update_label.setWordWrap(True)
         uf_layout.addWidget(self.update_label)
+        self.update_note_view = self._make_note_view()
+        uf_layout.addWidget(self.update_note_view)
         self.update_button = QPushButton("一鍵更新並重啟")
         self.update_button.setFont(default_font)
         self.update_button.clicked.connect(self.on_update_clicked)
@@ -618,7 +673,7 @@ class AutoUpdateGUI(QMainWindow):
 
     def _slot_update_release(self, version_text, note_text):
         self.version_label.setText(version_text)
-        self.release_note_label.setText(note_text)
+        self._set_note_text(self.release_note_view, note_text)
 
     def _slot_show_status_frame(self):
         self.status_frame.show()
@@ -644,10 +699,8 @@ class AutoUpdateGUI(QMainWindow):
         self._update_info = info
         latest = info.get('version', '')
         note = info.get('release_note', '')
-        text = f"發現新版本 {latest} (目前 {self.version})"
-        if note:
-            text += f"\n{note}"
-        self.update_label.setText(text)
+        self.update_label.setText(f"發現新版本 {latest} (目前 {self.version})")
+        self._set_note_text(self.update_note_view, note)
         self.update_frame.show()
 
     def on_update_clicked(self):
@@ -781,7 +834,7 @@ class AutoUpdateGUI(QMainWindow):
     #  Update logic
     # ------------------------------------------------------------------ #
     def start_update(self):
-        self.release_note_label.setText("")
+        self._set_note_text(self.release_note_view, "")
         self.version_label.setText("")
 
         self.tool_history = self.choose_tool.currentText()
