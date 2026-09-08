@@ -36,6 +36,27 @@ _HTTP_TIMEOUT    = (_CONNECT_TIMEOUT, _READ_TIMEOUT)
 # 下載進度每累積這麼多 bytes 就記一次 log, 用來觀察下載卡在哪個進度。
 _LOG_EVERY_BYTES = 5 * 1024 * 1024
 
+# --------------------------------------------------------------------------- #
+#  主題色: 取自 app icon (realtek.png, 切角方容器系列 + 放射 hub)。
+#  金黃為 icon 容器色, 米白為 hub 圖案色; 金黃底亮度高, 其上文字須用深墨色才讀得清
+#  (米白文字對比不足)。
+# --------------------------------------------------------------------------- #
+_ACCENT         = '#DBCB6C'   # icon 容器金黃
+_ACCENT_HOVER   = '#CABA5A'   # 金黃加深 ~8% (hover)
+_ACCENT_PRESSED = '#B4A448'   # 金黃加深 ~18% (pressed)
+_ACCENT_INK     = '#3A3312'   # 金黃底上的文字深墨色
+_CREAM          = '#F4EFE6'   # icon hub 米白
+
+
+def _accent_button_qss():
+    """主題色按鈕樣式 (與 app icon 同色系), 供各主要按鈕共用。"""
+    return (
+        "QPushButton { background-color: %s; color: %s; border: none; border-radius: 4px; padding: 4px 12px; }"
+        "QPushButton:hover { background-color: %s; }"
+        "QPushButton:pressed { background-color: %s; }"
+        "QPushButton:disabled { background-color: #A0A0A0; color: #FFFFFF; }"
+    ) % (_ACCENT, _ACCENT_INK, _ACCENT_HOVER, _ACCENT_PRESSED)
+
 
 def _get_log_dir():
     """log 目錄: USER_HOME/.PCDV/DVUtility/。
@@ -257,7 +278,7 @@ class AutoUpdateGUI(QMainWindow):
         self.chevron_svg = f'{self.resource}/macos_chevrons.svg'
         svg = (
             '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="14" viewBox="0 0 12 14">'
-            '<path d="M3.6 5.9 L8.4 5.9 L6 9.2 Z" fill="#FFFFFF" stroke="#FFFFFF" '
+            f'<path d="M3.6 5.9 L8.4 5.9 L6 9.2 Z" fill="{_CREAM}" stroke="{_CREAM}" '
             'stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>'
             '</svg>'
         )
@@ -314,7 +335,7 @@ class AutoUpdateGUI(QMainWindow):
             "QScrollBar::handle:vertical { background: rgba(255, 255, 255, 0.22);"
             "           min-height: 28px; border: none; border-radius: 3px; margin: 0px 2px 0px 2px; }"
             "QScrollBar::handle:vertical:hover { background: rgba(255, 255, 255, 0.38); }"
-            "QScrollBar::handle:vertical:pressed { background: #0A84FF; }"
+            "QScrollBar::handle:vertical:pressed { background: " + _ACCENT + "; }"
             "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
             "           height: 0px; width: 0px; background: none; border: none; }"
             "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }"
@@ -362,24 +383,24 @@ class AutoUpdateGUI(QMainWindow):
         central.setStyleSheet(
             "QWidget { background-color: #2B2B2B; color: #FFFFFF; }"
             "QLabel { background: transparent; color: #FFFFFF; }"
-            # ---- macOS 風格下拉選單 (pop-up button): 圓角控制項 + 藍色 chevron 方塊 + 圓角浮層 ----
+            # ---- macOS 風格下拉選單 (pop-up button): 圓角控制項 + 金黃 chevron 方塊 (同 app icon 配色) + 圓角浮層 ----
             # combobox-popup:0 強制非原生彈窗, maxVisibleItems(10) 才會生效 (Fusion 預設為原生彈窗會忽略它)
             "QComboBox { background-color: #3A3A3C; color: #FFFFFF; border: 1px solid #48484A;"
             "           border-radius: 6px; padding: 4px 34px 4px 10px; min-height: 22px;"
             "           combobox-popup: 0; }"
             "QComboBox:hover { background-color: #444446; }"
-            "QComboBox:on { border: 1px solid #0A84FF; }"
+            "QComboBox:on { border: 1px solid " + _ACCENT + "; }"
             "QComboBox::drop-down { subcontrol-origin: padding; subcontrol-position: center right;"
-            "           width: 22px; margin: 4px; border-radius: 5px; background-color: #0A84FF; }"
+            "           width: 22px; margin: 4px; border-radius: 5px; background-color: " + _ACCENT + "; }"
             + arrow_rule +
             "QComboBox QAbstractItemView { background-color: #2E2E30; color: #FFFFFF;"
             "           border: 1px solid #48484A; border-radius: 8px; padding: 4px; outline: none;"
-            "           selection-background-color: #0A84FF; selection-color: #FFFFFF; }"
+            "           selection-background-color: " + _ACCENT + "; selection-color: " + _ACCENT_INK + "; }"
             "QComboBox QAbstractItemView::item { border-radius: 5px; padding: 5px 8px; min-height: 22px; }"
-            # 滑鼠移到選項上 / 鍵盤移動的目前項目: 藍底白字, 讓使用者點下前就看得出會選到哪一項
+            # 滑鼠移到選項上 / 鍵盤移動的目前項目: 金黃底墨字, 讓使用者點下前就看得出會選到哪一項
             # (::item 一旦被自訂樣式接管, 上面 view 層的 selection-background-color 就不會生效, 需在此明確指定)
-            "QComboBox QAbstractItemView::item:hover { background-color: #0A84FF; color: #FFFFFF; }"
-            "QComboBox QAbstractItemView::item:selected { background-color: #0A84FF; color: #FFFFFF; }"
+            "QComboBox QAbstractItemView::item:hover { background-color: " + _ACCENT + "; color: " + _ACCENT_INK + "; }"
+            "QComboBox QAbstractItemView::item:selected { background-color: " + _ACCENT + "; color: " + _ACCENT_INK + "; }"
             # ---- macOS 風格浮層捲軸 (僅作用於下拉選單彈出視窗, 不影響右側表格) ----
             "QComboBox QAbstractItemView QScrollBar:vertical {"
             "           background: transparent; width: 10px; margin: 4px 3px 4px 0px; border: none; }"
@@ -389,7 +410,7 @@ class AutoUpdateGUI(QMainWindow):
             "QComboBox QAbstractItemView QScrollBar::handle:vertical:hover {"
             "           background: rgba(255, 255, 255, 0.38); }"
             "QComboBox QAbstractItemView QScrollBar::handle:vertical:pressed {"
-            "           background: #0A84FF; }"
+            "           background: " + _ACCENT + "; }"
             "QComboBox QAbstractItemView QScrollBar::add-line:vertical,"
             "QComboBox QAbstractItemView QScrollBar::sub-line:vertical {"
             "           height: 0px; width: 0px; background: none; border: none; }"
@@ -401,14 +422,14 @@ class AutoUpdateGUI(QMainWindow):
             "           background: none; }"
             # ---- 表格 ----
             "QTableWidget { background-color: #2B2B2B; color: #FFFFFF; gridline-color: #3F3F46; border: none; }"
-            "QTableWidget::item:selected { background-color: #0A84FF; color: #FFFFFF; }"
+            "QTableWidget::item:selected { background-color: " + _ACCENT + "; color: " + _ACCENT_INK + "; }"
             "QHeaderView::section { background-color: #3C3C3C; color: #FFFFFF; border: none;"
             "           padding: 4px; font-weight: bold; }"
             "QTableCornerButton::section { background-color: #3C3C3C; border: none; }"
             # ---- macOS 風格膠囊進度條 ----
             "QProgressBar { background-color: #48484A; border: none; border-radius: 4px;"
             "           text-align: center; color: #FFFFFF; }"
-            "QProgressBar::chunk { background-color: #0A84FF; border-radius: 4px; }"
+            "QProgressBar::chunk { background-color: " + _ACCENT + "; border-radius: 4px; }"
             "QToolTip { background-color: #1E1E1E; color: #FFFFFF; border: 1px solid #3F3F46; }"
         )
         self.outer_layout = QHBoxLayout(central)
@@ -432,7 +453,7 @@ class AutoUpdateGUI(QMainWindow):
         grid = QGridLayout(self.top_frame)
         grid.setSpacing(5)
 
-        self.path_label = QLabel("請選擇 project 路徑:")
+        self.path_label = QLabel("請選擇執行路徑:")
         self.path_label.setFont(default_font)
         grid.addWidget(self.path_label, 0, 0)
 
@@ -448,16 +469,11 @@ class AutoUpdateGUI(QMainWindow):
 
         self.choose_dir_button = QPushButton("選擇路徑")
         self.choose_dir_button.setFont(default_font)
-        self.choose_dir_button.setStyleSheet(
-            "QPushButton { background-color: #0078D4; color: white; border: none; border-radius: 4px; padding: 4px 12px; }"
-            "QPushButton:hover { background-color: #106EBE; }"
-            "QPushButton:pressed { background-color: #005A9E; }"
-            "QPushButton:disabled { background-color: #A0A0A0; }"
-        )
+        self.choose_dir_button.setStyleSheet(_accent_button_qss())
         self.choose_dir_button.clicked.connect(self.user_choose_work_dir)
         grid.addWidget(self.choose_dir_button, 0, 2)
 
-        self.tool_label = QLabel("請選擇 utility 工具:")
+        self.tool_label = QLabel("請選擇執行工具:")
         self.tool_label.setFont(default_font)
         grid.addWidget(self.tool_label, 1, 0)
 
@@ -474,12 +490,7 @@ class AutoUpdateGUI(QMainWindow):
 
         self.start_button = QPushButton("開啟程式")
         self.start_button.setFont(default_font)
-        self.start_button.setStyleSheet(
-            "QPushButton { background-color: #0078D4; color: white; border: none; border-radius: 4px; padding: 4px 12px; }"
-            "QPushButton:hover { background-color: #106EBE; }"
-            "QPushButton:pressed { background-color: #005A9E; }"
-            "QPushButton:disabled { background-color: #A0A0A0; }"
-        )
+        self.start_button.setStyleSheet(_accent_button_qss())
         self.start_button.clicked.connect(self.start_update)
         grid.addWidget(self.start_button, 1, 2)
 
@@ -534,6 +545,7 @@ class AutoUpdateGUI(QMainWindow):
         uf_layout.addWidget(self.update_note_view)
         self.update_button = QPushButton("一鍵更新並重啟")
         self.update_button.setFont(default_font)
+        self.update_button.setStyleSheet(_accent_button_qss())
         self.update_button.clicked.connect(self.on_update_clicked)
         uf_layout.addWidget(self.update_button)
         self.update_frame.hide()
@@ -632,7 +644,8 @@ class AutoUpdateGUI(QMainWindow):
         self.rail_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.rail_badge.setToolTip("執行中的程式數量")
         self.rail_badge.setStyleSheet(
-            "QLabel { background-color: #0078D4; color: white; border-radius: 12px; font: bold 10pt 'Microsoft JhengHei'; }"
+            "QLabel { background-color: " + _ACCENT + "; color: " + _ACCENT_INK + ";"
+            "         border-radius: 12px; font: bold 10pt 'Microsoft JhengHei'; }"
         )
         rail_layout.addWidget(self.rail_badge, alignment=Qt.AlignmentFlag.AlignHCenter)
         rail_layout.addStretch()
