@@ -11,12 +11,12 @@ import threading
 import requests
 import json
 import subprocess
-import zipfile
 from pathlib import Path
 import os
 import logging
 from logging.handlers import RotatingFileHandler
 import update_check
+import update_install
 
 
 # --------------------------------------------------------------------------- #
@@ -181,6 +181,7 @@ class WorkerSignals(QObject):
     set_btn_enabled    = Signal(bool)
     process_added      = Signal(object)   # 攜帶新 process 紀錄, 於 GUI thread append
     update_available   = Signal(object)   # 更新檢查: 發現新版 (攜帶 manifest info dict)
+    show_repair        = Signal(str, bool)  # 權限修復引導: (icacls 指令, 有無 VS Code)
 
 
 class AutoUpdateGUI(QMainWindow):
@@ -676,6 +677,7 @@ class AutoUpdateGUI(QMainWindow):
         self.signals.process_added.connect(self._add_process)
         # 更新檢查 (worker thread -> GUI thread)
         self.signals.update_available.connect(self._slot_update_available)
+        self.signals.show_repair.connect(self._slot_show_repair)
 
     # ------------------------------------------------------------------ #
     #  Signal slots (run on main thread)
@@ -955,8 +957,41 @@ class AutoUpdateGUI(QMainWindow):
         # 進行中旗標: closeEvent 據此警告 — daemon 下載執行緒會在關窗時被凍結,
         # 可能留下解壓到一半的目錄 (overwrite=False 項目會被 case2 誤判為已安裝)
         self._install_busy = True
-        result   = True
+        failure  = None      # 第一個失敗的 InstallResult (後面項目的成功不得蓋掉)
         zip_path = None
+
+        # preflight: PCDV 權限異常 (ACL 被改壞) 在下載前就攔 —
+        # 等 extractall 半途炸掉才發現, 目錄已污染且訊息無從分類
+        try:
+            install_dir = self.get_install_dir()
+            dir_writable = update_install.probe_writable(install_dir)
+        except OSError:
+            log.exception('download_file: get_install_dir failed (視同權限異常)')
+            dir_writable = False
+        if not dir_writable:
+            self._report_permission_denied()
+            self._install_busy = False
+            return
+
+        # 更新會覆蓋既有安裝 → 先確認該目錄下沒有工具還在執行
+        # (上次忘記關的不在 self.processes, 須全域掃; 全新安裝沒東西可覆蓋, 免掃)
+        target_dir = getattr(self, 'target_directory', None)
+        if (self.update_required and target_dir
+                and os.path.isdir(target_dir) and os.listdir(target_dir)):
+            try:
+                running = update_install.procs_under(
+                    target_dir, update_install.snapshot_processes())
+            except Exception:
+                # 掃描失敗不擋更新 — 鎖檔真發生時 promote 會分類成 locked
+                log.exception('download_file: process scan failed (略過, 照常更新)')
+                running = []
+            if running:
+                log.error('download_file: tools still running under %s: %s',
+                          target_dir, running)
+                self.signals.update_status.emit("偵測到工具仍在執行中, 請關閉工具後再更新")
+                self.signals.set_btn_enabled.emit(True)
+                self._install_busy = False
+                return
         try:
             for url, extract_dir, en_overwrite in self.extract_info:
                 log.info('download_file: url=%s extract_dir=%s overwrite=%s',
@@ -1000,10 +1035,10 @@ class AutoUpdateGUI(QMainWindow):
                              downloaded, zip_path)
 
                     self.signals.update_status.emit("安裝中 ...")
-                    # 任一項目失敗都須讓整體 result=False (不可被後面項目的成功蓋掉),
-                    # 否則版本檔照寫, 壞掉的安裝永遠不會再被重抓
-                    if not self.extract_zip(zip_path, extract_dir):
-                        result = False
+                    # 任一項目失敗都不得寫版本檔, 否則壞掉的安裝永遠不會再被重抓
+                    res = self.extract_zip(zip_path, extract_dir)
+                    if not res.ok and failure is None:
+                        failure = res
                 else:
                     log.info('download_file: skip %s (already present / no update needed)', url)
         except PermissionError:
@@ -1023,14 +1058,31 @@ class AutoUpdateGUI(QMainWindow):
             return
 
         self._install_busy = False
-        if result:
+        if failure is None:
             self.signals.update_status.emit("安裝完成")
             self.set_current_version({'version': self.newest_version_info['version']})
             self.start()
         else:
-            log.error('download_file: extract failed, asking user to delete folder and re-download')
-            self.signals.update_status.emit("安裝異常, 請將資料夾全部刪除並重新下載")
-            self.signals.set_btn_enabled.emit(True)
+            log.error('download_file: install failed (kind=%s detail=%s)',
+                      failure.kind, failure.detail)
+            if failure.kind == update_install.KIND_DENIED:
+                self._report_permission_denied()
+            else:
+                self.signals.update_status.emit(
+                    update_install.FAIL_MESSAGES.get(failure.kind,
+                                                     update_install.FAIL_MESSAGES['error']))
+                self.signals.set_btn_enabled.emit(True)
+
+    def _report_permission_denied(self):
+        """權限異常的統一出口: 狀態訊息 + 修復引導 (icacls 指令, VS Code / PowerShell)。"""
+        self.signals.update_status.emit(
+            update_install.FAIL_MESSAGES[update_install.KIND_DENIED])
+        try:
+            plan = update_install.build_repair_plan(self.get_install_dir())
+            self.signals.show_repair.emit(plan.command, plan.vscode_available)
+        except Exception:
+            log.exception('_report_permission_denied: build_repair_plan failed')
+        self.signals.set_btn_enabled.emit(True)
 
     def start(self):
         self.signals.update_release.emit(
@@ -1074,15 +1126,11 @@ class AutoUpdateGUI(QMainWindow):
             log.warning('could not remove temp zip %s', zip_path, exc_info=True)
 
     def extract_zip(self, zip_file_name, extract_dir):
-        result = True
+        # staging 進位 (update_install): 解壓失敗不污染正式目錄, 失敗附分類
+        # (locked/denied/corrupt), 供 download_file 給出正確指示
         log.info('extract_zip: %s -> %s', zip_file_name, extract_dir)
-        try:
-            with zipfile.ZipFile(zip_file_name, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-            log.info('extract_zip: done %s', zip_file_name)
-        except Exception:
-            log.exception('extract_zip FAILED: %s -> %s', zip_file_name, extract_dir)
-            result = False
+        result = update_install.install_zip_staged(
+            zip_file_name, extract_dir, self.get_install_dir())
 
         try:
             if os.path.exists(zip_file_name):
@@ -1194,14 +1242,37 @@ class AutoUpdateGUI(QMainWindow):
             target = self.LEFT_W + 2 * self._margin + self._gap + panel_w
             self.resize(target, self.height())
 
+    def _slot_show_repair(self, command, vscode_available):
+        """權限修復指引: 指令由使用者自己在 VS Code terminal / PowerShell 執行 —
+        本程式 (Nuitka exe) 不代跑 icacls, 避免觸發端點防護的行為偵測。"""
+        where = ("VS Code 的 Terminal (上方選單 Terminal → New Terminal)"
+                 if vscode_available else "PowerShell (開始選單搜尋 PowerShell)")
+        box = QMessageBox(self)
+        box.setWindowTitle("修復資料夾權限")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText(
+            "PCDV 資料夾權限異常, 更新無法寫入。\n\n"
+            f"請開啟 {where},\n貼上下方指令執行後, 再重試更新:\n\n"
+            f"{command}\n\n"
+            "若仍失敗, 請聯絡 IT 檢查資料夾擁有者。\n"
+            "請勿改用系統管理員身分執行本程式 — 那會讓權限問題更難修復。"
+        )
+        copy_btn = box.addButton("複製指令", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        if box.clickedButton() is copy_btn:
+            QApplication.clipboard().setText(command)
+
     def close_process(self, record):
         popen = record['popen']
         if popen.poll() is None:
             log.info('close_process: terminating %s', record.get('label'))
             try:
-                popen.terminate()
+                # kill tree: terminate() 只殺直接子行程, 工具再生的子行程會殘留
+                # 並繼續鎖住安裝目錄 (「沒關乾淨」導致更新失敗的來源)
+                update_install.kill_process_tree(popen.pid)
             except Exception:
-                log.exception('close_process: terminate failed for %s', record.get('label'))
+                log.exception('close_process: kill failed for %s', record.get('label'))
         self.refresh_process_panel()
 
     def closeEvent(self, event):
@@ -1244,10 +1315,11 @@ class AutoUpdateGUI(QMainWindow):
                     if r['popen'].poll() is None:
                         log.info('closeEvent: terminating %s', r.get('label'))
                         try:
-                            r['popen'].terminate()
+                            # kill tree: 子行程殘留會繼續鎖住安裝目錄 (下次更新失敗)
+                            update_install.kill_process_tree(r['popen'].pid)
                         except Exception:
                             # 單一程序關閉失敗不應擋住視窗關閉
-                            log.exception('closeEvent: terminate failed for %s', r.get('label'))
+                            log.exception('closeEvent: kill failed for %s', r.get('label'))
         event.accept()
 
 
