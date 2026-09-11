@@ -36,6 +36,12 @@ class InstallResult:
     detail: str = ''
 
 
+# 主程式打包為無 console 的 GUI exe (--windows-console-mode=disable), 但
+# powershell/taskkill 是 console 程式 — 不帶此旗標 Windows 會為它們彈出
+# 一閃而過的黑色 console 視窗
+_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
+
 def snapshot_processes(run=subprocess.run):
     """列出全系統 (pid, exe 完整路徑) — tasklist 不給路徑, 用 CIM 查。
 
@@ -44,7 +50,8 @@ def snapshot_processes(run=subprocess.run):
     cmd = ['powershell', '-NoProfile', '-Command',
            'Get-CimInstance Win32_Process | ForEach-Object '
            '{ "$($_.ProcessId)|$($_.ExecutablePath)" }']
-    out = run(cmd, capture_output=True, text=True, timeout=30)
+    out = run(cmd, capture_output=True, text=True, timeout=30,
+              creationflags=_NO_WINDOW)
     procs = []
     for line in (getattr(out, 'stdout', '') or '').splitlines():
         pid_s, _, path = line.partition('|')
@@ -56,7 +63,7 @@ def snapshot_processes(run=subprocess.run):
 def kill_process_tree(pid, run=subprocess.run):
     """taskkill /T /F: 連子行程一起收 — terminate() 漏子行程即「沒關乾淨」的來源。"""
     run(['taskkill', '/PID', str(pid), '/T', '/F'],
-        capture_output=True, text=True, timeout=30)
+        capture_output=True, text=True, timeout=30, creationflags=_NO_WINDOW)
 
 
 def procs_under(dir_path, procs):

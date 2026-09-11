@@ -5,6 +5,7 @@
 """
 import ctypes
 import os
+import subprocess
 import zipfile
 
 import update_install
@@ -195,6 +196,21 @@ def test_kill_process_tree_kills_whole_tree_forcefully():
     update_install.kill_process_tree(1234, run=lambda cmd, **k: calls.append(cmd))
 
     assert calls == [['taskkill', '/PID', '1234', '/T', '/F']]
+
+
+def test_console_helpers_spawn_without_console_window():
+    """主程式是無 console 的 GUI exe — powershell/taskkill 子行程不帶
+    CREATE_NO_WINDOW 時, Windows 會為它們閃出黑色 console 視窗。"""
+    seen = []
+
+    class _Out:
+        stdout = ''
+
+    update_install.snapshot_processes(run=lambda *a, **k: seen.append(k) or _Out)
+    update_install.kill_process_tree(1, run=lambda *a, **k: seen.append(k))
+
+    assert len(seen) == 2
+    assert all(k.get('creationflags') == subprocess.CREATE_NO_WINDOW for k in seen)
 
 
 def test_repair_plan_detects_vscode_default_install():
