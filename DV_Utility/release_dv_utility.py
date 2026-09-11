@@ -340,6 +340,7 @@ def main(sign_ctc=True):
         f'--product-version={num_version}',
         f'--file-version={num_version}',
         f'--windows-icon-from-ico={tmp_ico}',
+        f'--include-data-files={_png}=realtek.png',   # 更新視窗的標題列/工作列 icon 用
         '--assume-yes-for-downloads',
         '--output-dir=dist',
         f'--output-filename={UPDATER_NAME}.exe',

@@ -30,34 +30,107 @@ def parse_args(argv):
     return p.parse_args(argv)
 
 
-class _StatusUI:
-    """更新期間的極簡狀態視窗 (tkinter, best-effort)。主程式已退出, 需自己給點回饋。
+def _bundled_path(name):
+    """打包資源路徑 (Nuitka onefile: __file__ 位於解壓目錄; 開發時 = 腳本同層)。"""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
 
+
+class _StatusUI:
+    """更新期間的狀態視窗 (tkinter/ttk, best-effort)。主程式已退出, 需自己給點回饋。
+
+    版面: Realtek logo + 標題 + 版本 / 狀態文字 / 進度條 / 下載量明細, 置中顯示。
     tkinter 失敗 (無顯示器等) 時全部 no-op, 不影響更新流程。
     """
 
     def __init__(self):
         self._tk = None
-        self._label = None
+        self._last_pct = -1
 
-    def start(self, text):
+    def start(self, version):
         try:
             import tkinter as tk
-            self._tk = tk.Tk()
-            self._tk.title('DV Utility 更新')
-            self._tk.attributes('-topmost', True)
-            self._tk.geometry('320x90')
-            self._label = tk.Label(self._tk, text=text, padx=16, pady=20)
-            self._label.pack(expand=True, fill='both')
-            self._tk.update()
+            from tkinter import ttk
+            root = tk.Tk()
+            root.withdraw()                     # 佈局 + 置中完成才顯示, 避免視窗跳動
+            root.title('DV Utility 更新')
+            root.resizable(False, False)
+            root.attributes('-topmost', True)
+            root.protocol('WM_DELETE_WINDOW', lambda: None)   # 更新中不給關, 免得誤以為已中止
+
+            style = ttk.Style(root)
+            if 'vista' in style.theme_names():
+                style.theme_use('vista')
+
+            # 視窗/標題列 icon 與主程式同一來源 realtek.png (release 打包時帶入)。
+            # 抓不到 (開發環境沒帶檔等) 就用 Tk 預設, 不影響更新。
+            logo = None
+            try:
+                img = tk.PhotoImage(file=_bundled_path('realtek.png'))
+                root.iconphoto(True, img)
+                logo = img.subsample(max(1, img.width() // 40), max(1, img.height() // 40))
+            except Exception:
+                pass
+
+            body = ttk.Frame(root, padding=(20, 16, 20, 16))
+            body.pack(fill='both', expand=True)
+
+            header = ttk.Frame(body)
+            header.pack(fill='x')
+            if logo is not None:
+                logo_label = ttk.Label(header, image=logo)
+                logo_label.image = logo         # 保住參考, 防 Tk 圖片被 GC
+                logo_label.pack(side='left', padx=(0, 10))
+            ttk.Label(header, text='DV Utility 更新',
+                      font=('Segoe UI', 12, 'bold')).pack(side='left')
+            ttk.Label(header, text=version, foreground='#808080').pack(side='right')
+
+            self._status = ttk.Label(body, text='準備中 …')
+            self._status.pack(fill='x', pady=(14, 6))
+
+            self._bar = ttk.Progressbar(body, length=380, maximum=100, mode='indeterminate')
+            self._bar.pack(fill='x')
+            self._bar.start(12)
+
+            self._detail = ttk.Label(body, text=' ', foreground='#808080')
+            self._detail.pack(fill='x', pady=(6, 0))
+
+            root.update_idletasks()
+            x = (root.winfo_screenwidth() - root.winfo_reqwidth()) // 2
+            y = (root.winfo_screenheight() - root.winfo_reqheight()) // 3
+            root.geometry(f'+{x}+{y}')
+            root.deiconify()
+            root.update()
+            self._tk = root
         except Exception:
             self._tk = None
 
-    def set_text(self, text):
+    def set_busy(self, text):
+        """不確定時長的階段 (安裝中等): 狀態文字 + 跑馬燈進度條。"""
         if not self._tk:
             return
         try:
-            self._label.config(text=text)
+            self._status.config(text=text)
+            self._detail.config(text=' ')
+            self._bar.config(mode='indeterminate')
+            self._bar.start(12)
+            self._tk.update()
+        except Exception:
+            pass
+
+    def set_progress(self, text, done, total):
+        """下載進度: 百分比進度條 + 已載/總量 (MB)。同一 % 內不重繪 (chunk 很密)。"""
+        if not self._tk or total <= 0:
+            return
+        pct = min(100, int(done * 100 / total))
+        if pct == self._last_pct:
+            return
+        self._last_pct = pct
+        try:
+            self._bar.stop()
+            self._bar.config(mode='determinate', value=pct)
+            self._status.config(text=f'{text}  {pct}%')
+            mb = 1024 * 1024
+            self._detail.config(text=f'{done / mb:.1f} / {total / mb:.1f} MB')
             self._tk.update()
         except Exception:
             pass
@@ -163,7 +236,7 @@ def main(argv=None):
     new_exe = os.path.join(work_dir, 'DV_Utility.update.new')  # 解壓出的新 exe (同磁碟區)
 
     ui = _StatusUI()
-    ui.start(f'正在更新到 {args.version} …')
+    ui.start(args.version)
     # 給主程式一點時間完成退出 (釋放 exe 檔案鎖); 下載本身也會再拖幾秒
     time.sleep(0.5)
 
@@ -175,10 +248,10 @@ def main(argv=None):
             pass
 
     try:
-        ui.set_text(f'下載中 … ({args.version})')
+        ui.set_busy(f'下載中 … ({args.version})')
         download(args.zip_url, part, args.sha256,
-                 progress_cb=lambda d, t: ui.set_text(f'下載中 … {int(d / t * 100)}%'))
-        ui.set_text('安裝中 …')
+                 progress_cb=lambda d, t: ui.set_progress('下載中 …', d, t))
+        ui.set_busy('安裝中 …')
         extract_main_exe(part, new_exe)
         os.remove(part)
         swap_with_backup(target, new_exe)
