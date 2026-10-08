@@ -267,5 +267,13 @@
         "Coverage",
         "UVM_ENV",
         "Verification"
+    ],
+    "ALC770_RL7085": [
+        "Register",
+        "AudioDataPath",
+        "ClockGating",
+        "Coverage",
+        "UVM_ENV",
+        "Verification"
     ]
 }
