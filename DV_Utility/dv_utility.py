@@ -33,6 +33,14 @@ _CONNECT_TIMEOUT = 15
 _READ_TIMEOUT    = 60
 _HTTP_TIMEOUT    = (_CONNECT_TIMEOUT, _READ_TIMEOUT)
 
+# 工具選單 setting.json 的下載來源 (依序嘗試)。主要來源是 GCS (publish_setting.py 上傳, no-cache, 改完立刻生效);
+# GitHub raw 僅作備援 — 它有約 5 分鐘 CDN 快取 (Cache-Control: max-age=300), 剛 push 完重開 app 會拿到舊檔。
+# repo 內的 dv_util_resource/setting.json 仍是唯一的編輯來源。
+SETTING_URLS = (
+    'https://storage.googleapis.com/realtek-pccdcic-dv/DVUtility/setting.json',
+    'https://raw.github.com/lichen0122/RealtekPCCDCIC/main/dv_util_resource/setting.json',
+)
+
 # 下載進度每累積這麼多 bytes 就記一次 log, 用來觀察下載卡在哪個進度。
 _LOG_EVERY_BYTES = 5 * 1024 * 1024
 
@@ -245,14 +253,10 @@ class AutoUpdateGUI(QMainWindow):
 
         # 啟動載入畫面 (見 __main__ 的 create_loading_splash) 已覆蓋此處的下載等待,
         # 故同步下載即可, 不再另開進度條 splash。
-        url = 'https://raw.github.com/lichen0122/RealtekPCCDCIC/main/dv_util_resource/setting.json'
-        try:
-            self.download_from_git(url, self.setting_file)
-        except Exception:
-            log.exception('ensure_resource_files: failed to refresh setting.json (url=%s)', url)
+        if not self.refresh_setting():
             if not os.path.exists(self.setting_file):
-                log.critical('setting.json missing and download failed; startup cannot continue')
-                raise
+                log.critical('setting.json missing and every download source failed; startup cannot continue')
+                raise RuntimeError('setting.json missing and every download source failed')
             log.warning('ensure_resource_files: falling back to existing setting.json from a previous run')
 
         if not os.path.exists(self.work_dir_list_file):
@@ -262,6 +266,31 @@ class AutoUpdateGUI(QMainWindow):
         if not os.path.exists(self.tool_history_file):
             with open(self.tool_history_file, 'w') as f:
                 json.dump("", f)
+
+    def refresh_setting(self):
+        """下載最新 setting.json (工具選單), 依 SETTING_URLS 順序嘗試; 成功回傳 True。
+
+        先寫成 .tmp、確認是合法 UTF-8 JSON 物件才取代正式檔 — 下載中斷 / 回傳壞內容時,
+        既有的 setting.json 完全不受影響 (呼叫端會沿用它)。"""
+        tmp = f'{self.setting_file}.tmp'
+        for url in SETTING_URLS:
+            try:
+                self.download_from_git(url, tmp)
+                with open(tmp, 'rb') as f:
+                    data = json.loads(f.read().decode('utf-8'))
+                if not isinstance(data, dict) or not data:
+                    raise ValueError('setting.json must be a non-empty JSON object')
+                os.replace(tmp, self.setting_file)
+                log.info('refresh_setting: updated from %s (%d tools)', url, len(data))
+                return True
+            except Exception:
+                log.exception('refresh_setting: source failed (url=%s)', url)
+            finally:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        return False
 
     def load_setting(self):
         # setting.json 由 download_from_git 以 UTF-8 原始 bytes 落地; 讀取須明示編碼 —
