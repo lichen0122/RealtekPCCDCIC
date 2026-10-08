@@ -41,6 +41,12 @@ _updater_script = os.path.join(_here, 'dv_updater.py')
 # Set DEBUG_BUILD=True to keep the console window for troubleshooting.
 DEBUG_BUILD = False
 
+# Nuitka 4.1+ compresses the onefile payload with zstd level 22 using one worker thread per job (= per CPU
+# core by default); every worker allocates a large window, so on a many-core machine that is also running
+# other heavy sessions the build dies with "zstd compress error: Allocation error : not enough memory".
+# Capping the jobs keeps the same compression level (same zip size) and only makes the build a bit slower.
+# Override with DVUTIL_NUITKA_JOBS if the machine has memory to spare.
+NUITKA_JOBS = os.environ.get('DVUTIL_NUITKA_JOBS', '4')
 
 def bump_version(path):
     """自動進版: 日期制 vYYYYMMDD + 當日流水號, 回寫 version.json 並回傳新版本字串。
@@ -306,6 +312,7 @@ def main(sign_ctc=True):
         f'--include-data-files={_png}=realtek.png',
         f'--include-data-files={_verfile}=version.json',   # 把進版後的 version.json 一起打包
         '--assume-yes-for-downloads',
+        f'--jobs={NUITKA_JOBS}',
         '--output-dir=dist',
         f'--output-filename={OUTPUT_NAME}.exe',
         '--remove-output',
@@ -342,6 +349,7 @@ def main(sign_ctc=True):
         f'--windows-icon-from-ico={tmp_ico}',
         f'--include-data-files={_png}=realtek.png',   # 更新視窗的標題列/工作列 icon 用
         '--assume-yes-for-downloads',
+        f'--jobs={NUITKA_JOBS}',
         '--output-dir=dist',
         f'--output-filename={UPDATER_NAME}.exe',
         '--remove-output',
