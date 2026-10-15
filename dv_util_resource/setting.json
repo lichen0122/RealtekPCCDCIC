@@ -9,5 +9,6 @@
 	"ManPower - PcdicMonthlyMeeting":                   "https://storage.googleapis.com/realtek-pccdcic-dv/PcdicMonthlyMeeting/version_pcdic_monthly_meeting.json",
 	"ManPower - CardNote":                              "https://storage.googleapis.com/realtek-pccdcic-dv/CardNote/card_note_version.json",
 	"Design - Gate Level Design":                       "https://storage.googleapis.com/realtek-pccdcic-dv/GateLevelDesign/version_gate_level_design.json",
-	"AI - PCDIC Skills":                                "https://storage.googleapis.com/realtek-pccdcic-dv/PCDICskills/version_pcdic_skills.json"
+	"AI - PCDIC Skills":                                "https://storage.googleapis.com/realtek-pccdcic-dv/PCDICskills/version_pcdic_skills.json",
+	"SD - ICIDETool":                                   "https://storage.googleapis.com/cyvisionbot_test_2/IcIdeTool/version_ctrl/version_RTK.json"
 }
