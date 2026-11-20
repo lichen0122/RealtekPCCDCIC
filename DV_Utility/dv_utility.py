@@ -924,13 +924,34 @@ class AutoUpdateGUI(QMainWindow):
     def nas_store(self, store):
         self.__dict__['_nas_store'] = store
 
+    def nas_login_url(self):
+        """此工具要登入的 NAS 網址: manifest 本身在 NAS 就用它; 否則用先前下載時
+        碰到 NAS 登入問題的 zip 網址 (manifest 在 https、zip 在 NAS 的工具)。"""
+        target = getattr(self, 'target', '')
+        if rtnas.is_sftp_url(target):
+            return target
+        return self.__dict__.get('_nas_login_urls', {}).get(target)
+
+    def _remember_nas_url(self, url):
+        """背景 thread: 記住目前工具需要 NAS 登入 (下次按開啟時於 GUI thread 詢問)。"""
+        self.__dict__.setdefault('_nas_login_urls', {})[getattr(self, 'target', '')] = url
+
     def needs_nas_login(self):
-        """所選工具放在 RT NAS 上, 且這台電腦還沒存過 NAS 登入。"""
-        return rtnas.is_sftp_url(getattr(self, 'target', '')) and self.nas_store.load() is None
+        """所選工具需要 RT NAS, 且這台電腦還沒存過 NAS 登入。https 工具永遠 False。"""
+        return bool(self.nas_login_url()) and self.nas_store.load() is None
 
     def prompt_nas_login(self):
-        """GUI thread: 詢問網域帳密, 實際連線驗證通過才存 (DPAPI 加密)。取消回 False。"""
-        host, port, _path = rtnas.parse_sftp_url(self.target)
+        """GUI thread: 詢問網域帳密, 實際連線驗證通過才存 (DPAPI 加密)。取消或失敗回 False。
+        任何意外 (網址格式、存檔失敗、build 缺 SFTP 元件) 都以訊息框告知, 不得讓視窗靜默消失。"""
+        try:
+            return self._prompt_nas_login()
+        except Exception as e:
+            log.exception('prompt_nas_login: unexpected failure')
+            QMessageBox.warning(self, "無法登入", f"RT NAS 登入時發生錯誤:\n{e}")
+            return False
+
+    def _prompt_nas_login(self):
+        host, port, _path = rtnas.parse_sftp_url(self.nas_login_url())
         user = rtnas.default_username()
         while True:
             dlg = QDialog(self)
@@ -974,7 +995,7 @@ class AutoUpdateGUI(QMainWindow):
         """背景 thread: NAS 拒絕已存的帳密 → 忘掉它, 下次點選開啟時重新詢問。"""
         log.error('RT NAS login rejected; forgetting saved credentials')
         self.nas_store.clear()
-        self.signals.update_status.emit("RT NAS 登入失敗 (密碼可能已變更), 請再按一次開啟並重新輸入密碼")
+        self.signals.update_status.emit("需要登入公司 RT NAS (或密碼已變更), 請再按一次開啟並輸入密碼")
         self.signals.set_btn_enabled.emit(True)
 
     def check_for_update(self):
@@ -1014,8 +1035,12 @@ class AutoUpdateGUI(QMainWindow):
     def get_newest_version(self):
         log.info('get_newest_version: fetching %s', self.target)
         if rtnas.is_sftp_url(self.target):
-            self.newest_version_info = json.loads(
-                rtnas.fetch_url(self.target, store=self.nas_store).decode('utf-8'))
+            try:
+                body = rtnas.fetch_url(self.target, store=self.nas_store)
+            except rtnas.AuthError:
+                self._remember_nas_url(self.target)
+                raise
+            self.newest_version_info = json.loads(body.decode('utf-8'))
         else:
             r = requests.get(self.target, timeout=_HTTP_TIMEOUT)
             r.raise_for_status()
@@ -1183,7 +1208,11 @@ class AutoUpdateGUI(QMainWindow):
         manifest 有 sha256 時兩者都驗證, 不符丟 rtnas.IntegrityError。"""
         expected = getattr(self, 'sha_by_url', {}).get(url)
         if rtnas.is_sftp_url(url):
-            session, remote = rtnas.connect_url(url, store=self.nas_store)
+            try:
+                session, remote = rtnas.connect_url(url, store=self.nas_store)
+            except rtnas.AuthError:
+                self._remember_nas_url(url)
+                raise
             with session as sftp:
                 return rtnas.download_to_file(sftp, remote, zip_path, expected_sha256=expected,
                                               progress_cb=self.update_progress)

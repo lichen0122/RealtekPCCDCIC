@@ -309,6 +309,20 @@ def test_fetch_url_uses_stored_credentials(tmp_path):
                     "username": "rtdomain\\u", "password": "pw"}
 
 
+def test_connect_without_paramiko_raises_rtnas_error(monkeypatch):
+    import builtins
+    real_import = builtins.__import__
+
+    def no_paramiko(name, *a, **k):
+        if name == "paramiko":
+            raise ImportError("No module named 'paramiko'")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", no_paramiko)
+    with pytest.raises(rtnas.RtnasError):
+        rtnas.connect("nas.example", 22, "u", "p")
+
+
 def test_fetch_url_without_credentials_raises_auth_error(tmp_path):
     store = rtnas.CredentialStore(tmp_path / "c.json",
                                   protect=_fake_protect, unprotect=_fake_unprotect)

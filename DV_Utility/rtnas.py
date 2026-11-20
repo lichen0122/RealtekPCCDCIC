@@ -220,15 +220,23 @@ def connect(host, port, username, password, timeout=CONNECT_TIMEOUT):
     :class:`RtnasError` (network). Use as ``with connect(...) as sftp:``."""
     import socket
 
-    import paramiko  # lazy: keep the dependency off the pure path
+    try:
+        import paramiko  # lazy: keep the dependency off the pure path
+    except ImportError as e:  # a frozen build that left paramiko out
+        raise RtnasError(f"SFTP support is missing from this build: {e}") from e
 
     try:
         sock = socket.create_connection((host, port), timeout=timeout)
     except OSError as e:
         raise RtnasError(f"cannot reach {host}:{port}: {e}") from e
-    transport = paramiko.Transport(sock)
+    try:
+        transport = paramiko.Transport(sock)
+    except Exception as e:
+        sock.close()
+        raise RtnasError(f"SFTP connection to {host} failed: {e}") from e
     try:
         transport.banner_timeout = timeout
+        transport.auth_timeout = timeout
         transport.start_client(timeout=timeout)
         key = transport.get_remote_server_key()
         if not host_key_ok(host, key.asbytes()):

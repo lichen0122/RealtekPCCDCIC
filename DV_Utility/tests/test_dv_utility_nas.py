@@ -141,7 +141,7 @@ def test_download_file_auth_error_forgets_login_and_says_so(monkeypatch, tmp_pat
 
     assert versions == []
     assert store.cleared                        # 下次點選會重新詢問密碼
-    assert any('RT NAS 登入失敗' in s for s in statuses)
+    assert any('登入公司 RT NAS' in s for s in statuses)
 
 
 def test_get_newest_version_reads_sftp_manifest(monkeypatch):
@@ -262,3 +262,34 @@ def test_https_target_get_newest_version_uses_requests_only(monkeypatch):
                         lambda *a, **k: pytest.fail('https manifest must not use the NAS'))
     inst.get_newest_version()
     assert inst.exe_name == 'a.exe'
+
+
+# ── review fixes ─────────────────────────────────────────────────────────────
+
+def test_https_manifest_with_sftp_zip_asks_for_login_next_time(monkeypatch, tmp_path):
+    """manifest 在 https、zip 在 NAS 且沒存過登入: 第一次 AuthError 後, 同一工具下次須跳登入窗。"""
+    inst, statuses, versions, _e, _st, store = _make_inst(monkeypatch, tmp_path, {})
+    store.creds = None
+    inst.target = 'https://storage.googleapis.com/b/tool_version.json'
+
+    def _no_login(url, store=None, **kw):
+        raise rtnas.AuthError('no saved RT NAS credentials')
+
+    monkeypatch.setattr(dv_utility.rtnas, 'connect_url', _no_login)
+    monkeypatch.chdir(tmp_path)
+    inst.download_file()
+
+    assert versions == []
+    assert inst.needs_nas_login()                       # 同一工具: 會詢問
+    assert inst.nas_login_url() == SFTP_URL             # 登入窗以 zip 的主機連線
+    inst.target = 'https://other.invalid/other_version.json'
+    assert not inst.needs_nas_login()                   # 其他 https 工具不受影響
+
+
+def test_prompt_nas_login_reports_unexpected_errors(monkeypatch):
+    inst = _bare_for_login('sftp://h/', None)           # 格式錯誤的網址 -> ValueError
+    shown = []
+    monkeypatch.setattr(dv_utility.QMessageBox, 'warning',
+                        lambda *a, **k: shown.append(a[-1]))
+    assert inst.prompt_nas_login() is False
+    assert shown and 'RT NAS' in shown[0]
