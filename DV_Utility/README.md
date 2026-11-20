@@ -85,4 +85,7 @@ python upload_to_gcs.py
   DPAPI 加密存在 `~/.PCDV/rtnas/credential.json`,同一台電腦的其他工具共用。
 - NAS 拒絕已存的密碼 (例如公司改密碼) 時會忘掉它,下次按開啟重新詢問。
 - 只接受釘選的 rt-nas host key;`update_info[]` 帶 `sha256` 時下載後比對,不符不安裝。
+- NAS 人人可寫,所以 NAS 上的 version.json 必須帶發佈者的 Ed25519 簽章 (`rtnas.TRUSTED_RELEASE_KEYS`),
+  且 NAS 上的 zip 必須帶 `sha256`;否則顯示「發佈檔簽章驗證失敗」不更新。`https://` 工具不檢查簽章。
+  發佈端以 pcdic_skills 的 `upload_to_nas.py` 簽 (私鑰只在發佈者電腦,`python rtnas.py keygen`)。
 - `rtnas.py` 與 pcdic_skills 的同名檔逐字相同,改一份要同步另一份。

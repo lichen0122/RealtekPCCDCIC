@@ -155,10 +155,13 @@ def test_get_newest_version_reads_sftp_manifest(monkeypatch):
         'update_info': [{'url': SFTP_URL, 'overwrite': True, 'extract_to': 'install_dir',
                          'sha256': 'ab' * 32}],
     }
+    private, public = rtnas.generate_signing_key()
+    monkeypatch.setattr(rtnas, 'TRUSTED_RELEASE_KEYS', (public,))
+    signed = rtnas.sign_manifest(manifest, private)
     seen = []
     monkeypatch.setattr(dv_utility.rtnas, 'fetch_url',
                         lambda url, store=None, **kw: seen.append(url)
-                        or json.dumps(manifest, ensure_ascii=False).encode('utf-8'))
+                        or json.dumps(signed, ensure_ascii=False).encode('utf-8'))
     monkeypatch.setattr(dv_utility.requests, 'get',
                         lambda *a, **k: pytest.fail('sftp manifest must not use requests'))
 
@@ -293,3 +296,60 @@ def test_prompt_nas_login_reports_unexpected_errors(monkeypatch):
                         lambda *a, **k: shown.append(a[-1]))
     assert inst.prompt_nas_login() is False
     assert shown and 'RT NAS' in shown[0]
+
+
+# ── spec §27.5: NAS manifests must be signed ─────────────────────────────────
+
+def _sftp_manifest_inst(monkeypatch, manifest_bytes):
+    inst = dv_utility.AutoUpdateGUI.__new__(dv_utility.AutoUpdateGUI)
+    inst.nas_store = _FakeStore()
+    inst.target = 'sftp://rt-nas.realsil.com.cn/Audio/Temp_RT/lichen.liu/Tool/v.json'
+    inst.get_install_dir = lambda: 'C:/PCDV'
+    monkeypatch.setattr(dv_utility.rtnas, 'fetch_url',
+                        lambda url, store=None, **kw: manifest_bytes)
+    return inst
+
+
+_MANIFEST = {'target_directory': 'Tool', 'current_version': 'v.json', 'exe_name': 'app/app.exe',
+             'version': '1', 'update_info': [{'url': SFTP_URL, 'overwrite': True,
+                                              'extract_to': 'install_dir', 'sha256': 'ab' * 32}]}
+
+
+def test_unsigned_nas_manifest_is_rejected(monkeypatch):
+    inst = _sftp_manifest_inst(monkeypatch, json.dumps(_MANIFEST).encode('utf-8'))
+    with pytest.raises(rtnas.IntegrityError):
+        inst.get_newest_version()
+
+
+def test_tampered_nas_manifest_is_rejected(monkeypatch):
+    private, public = rtnas.generate_signing_key()
+    monkeypatch.setattr(rtnas, 'TRUSTED_RELEASE_KEYS', (public,))
+    signed = rtnas.sign_manifest(_MANIFEST, private)
+    signed['exe_name'] = 'evil.exe'
+    inst = _sftp_manifest_inst(monkeypatch, json.dumps(signed).encode('utf-8'))
+    with pytest.raises(rtnas.IntegrityError):
+        inst.get_newest_version()
+
+
+def test_signed_nas_manifest_needs_sha256_for_nas_zip(monkeypatch):
+    private, public = rtnas.generate_signing_key()
+    monkeypatch.setattr(rtnas, 'TRUSTED_RELEASE_KEYS', (public,))
+    bare = json.loads(json.dumps(_MANIFEST))
+    del bare['update_info'][0]['sha256']
+    inst = _sftp_manifest_inst(monkeypatch, json.dumps(rtnas.sign_manifest(bare, private)).encode('utf-8'))
+    with pytest.raises(rtnas.IntegrityError):
+        inst.get_newest_version()
+
+
+def test_check_for_update_reports_a_bad_signature(monkeypatch):
+    inst = dv_utility.AutoUpdateGUI.__new__(dv_utility.AutoUpdateGUI)
+    inst.signals = dv_utility.WorkerSignals()
+    statuses = []
+    inst.signals.update_status.connect(statuses.append)
+
+    def _bad():
+        raise rtnas.IntegrityError('manifest is not signed')
+
+    inst.get_newest_version = _bad
+    inst.check_for_update()
+    assert any('簽章驗證失敗' in s for s in statuses)

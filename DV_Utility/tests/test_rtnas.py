@@ -329,3 +329,85 @@ def test_fetch_url_without_credentials_raises_auth_error(tmp_path):
     with pytest.raises(rtnas.AuthError):
         rtnas.fetch_url("sftp://nas.example/d/v.json", store=store,
                         connect=lambda *a, **k: pytest.fail("must not connect"))
+
+
+# ── signed manifests (spec §27.5) ────────────────────────────────────────────
+
+@pytest.fixture
+def signing_key(monkeypatch):
+    """A fresh key pair whose public half is the only trusted key."""
+    private, public = rtnas.generate_signing_key()
+    monkeypatch.setattr(rtnas, "TRUSTED_RELEASE_KEYS", (public,))
+    return private
+
+
+def test_canonical_bytes_ignore_signature_and_key_order():
+    a = rtnas.canonical_manifest_bytes({"b": 1, "a": "é", "signature": "x"})
+    b = rtnas.canonical_manifest_bytes({"a": "é", "b": 1})
+    assert a == b == '{"a":"é","b":1}'.encode("utf-8")
+
+
+def test_sign_then_verify_round_trip(signing_key):
+    signed = rtnas.sign_manifest({"version": "1", "url": "sftp://h/d/a.zip"}, signing_key)
+    assert "signature" in signed
+    assert rtnas.verify_manifest(signed) == signed
+
+
+def test_verify_rejects_tampered_field(signing_key):
+    signed = rtnas.sign_manifest({"version": "1", "sha256": "aa"}, signing_key)
+    signed["sha256"] = "bb"
+    with pytest.raises(rtnas.IntegrityError):
+        rtnas.verify_manifest(signed)
+
+
+def test_verify_rejects_missing_or_garbage_signature(signing_key):
+    with pytest.raises(rtnas.IntegrityError):
+        rtnas.verify_manifest({"version": "1"})
+    with pytest.raises(rtnas.IntegrityError):
+        rtnas.verify_manifest({"version": "1", "signature": "!!not base64!!"})
+
+
+def test_verify_rejects_untrusted_key(signing_key):
+    other, _pub = rtnas.generate_signing_key()
+    with pytest.raises(rtnas.IntegrityError):
+        rtnas.verify_manifest(rtnas.sign_manifest({"v": 1}, other))
+
+
+def test_verify_signed_json_parses_bytes(signing_key):
+    import json as _json
+    raw = _json.dumps(rtnas.sign_manifest({"v": "測"}, signing_key), ensure_ascii=False).encode("utf-8")
+    assert rtnas.verify_signed_json(raw)["v"] == "測"
+    with pytest.raises(rtnas.IntegrityError):
+        rtnas.verify_signed_json(b"{not json")
+
+
+def test_require_sha256_for_sftp_entries():
+    ok = {"update_info": [{"url": "sftp://h/d/a.zip", "sha256": "aa"},
+                          {"url": "https://x/b.zip"}]}
+    rtnas.require_sha256_for_sftp(ok)          # https entry may lack one
+    with pytest.raises(rtnas.IntegrityError):
+        rtnas.require_sha256_for_sftp({"update_info": [{"url": "sftp://h/d/a.zip"}]})
+    with pytest.raises(rtnas.IntegrityError):
+        rtnas.require_sha256_for_sftp({"url": "sftp://h/d/skills.zip"})
+    rtnas.require_sha256_for_sftp({"url": "sftp://h/d/skills.zip", "sha256": "aa"})
+
+
+def test_signing_key_store_round_trip(tmp_path):
+    store = rtnas.SigningKeyStore(tmp_path / "k" / "release_ed25519.key",
+                                  protect=_fake_protect, unprotect=_fake_unprotect)
+    assert store.load() is None
+    private, _pub = rtnas.generate_signing_key()
+    store.save(private)
+    assert store.load() == private
+    assert private not in (tmp_path / "k" / "release_ed25519.key").read_bytes()
+
+
+def test_public_key_of_matches_generate():
+    private, public = rtnas.generate_signing_key()
+    assert rtnas.public_key_of(private) == public
+
+
+def test_trusted_release_keys_are_pinned():
+    assert rtnas.TRUSTED_RELEASE_KEYS
+    for key in rtnas.TRUSTED_RELEASE_KEYS:
+        assert len(base64.b64decode(key)) == 32

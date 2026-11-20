@@ -15,6 +15,8 @@ Command line (run in a real terminal — it prompts for the password)::
     python rtnas.py login      # save rtdomain\\<user> + password (DPAPI)
     python rtnas.py check      # connect with the saved credentials
     python rtnas.py logout     # forget the saved credentials
+    python rtnas.py keygen     # publisher: create the release signing key (once)
+    python rtnas.py pubkey     # publisher: print the public key to pin
 """
 from __future__ import annotations
 
@@ -45,6 +47,15 @@ PINNED_HOST_KEYS = {
 }
 
 DEFAULT_CREDENTIAL_PATH = Path.home() / ".PCDV" / "rtnas" / "credential.json"
+
+# Ed25519 public keys (base64 of the 32 raw bytes) whose signatures make a JSON
+# fetched from the NAS trustworthy (spec §27.5). The private half lives only on
+# the publisher's machine (DEFAULT_SIGNING_KEY_PATH, DPAPI-encrypted).
+TRUSTED_RELEASE_KEYS = (
+    "MdUcG0n/9RNBWZXxj4hIisfTwQmZFJFONW8XeUM85FM=",   # lichen.liu, created 2026-11-20
+)
+SIGNATURE_FIELD = "signature"
+DEFAULT_SIGNING_KEY_PATH = Path.home() / ".PCDV" / "rtnas" / "release_ed25519.key"
 _CHUNK = 1024 * 1024
 
 
@@ -189,6 +200,105 @@ class CredentialStore:
             self.path.unlink()
         except FileNotFoundError:
             pass
+
+
+# ── signed manifests (Ed25519, spec §27.5) ──────────────────────────────────
+
+def canonical_manifest_bytes(data: dict) -> bytes:
+    """The bytes a signature covers: *data* without its signature field, keys
+    sorted, no whitespace, UTF-8."""
+    body = {k: v for k, v in data.items() if k != SIGNATURE_FIELD}
+    return json.dumps(body, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False).encode("utf-8")
+
+
+def generate_signing_key():
+    """New key pair -> ``(private_raw_32_bytes, public_base64)``."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding, NoEncryption, PrivateFormat)
+
+    key = Ed25519PrivateKey.generate()
+    private = key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+    return private, public_key_of(private)
+
+
+def public_key_of(private_raw: bytes) -> str:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    pub = Ed25519PrivateKey.from_private_bytes(private_raw).public_key()
+    return base64.b64encode(pub.public_bytes(Encoding.Raw, PublicFormat.Raw)).decode("ascii")
+
+
+def sign_manifest(data: dict, private_raw: bytes) -> dict:
+    """Copy of *data* carrying a fresh ``signature`` field."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    sig = Ed25519PrivateKey.from_private_bytes(private_raw).sign(canonical_manifest_bytes(data))
+    out = {k: v for k, v in data.items() if k != SIGNATURE_FIELD}
+    out[SIGNATURE_FIELD] = base64.b64encode(sig).decode("ascii")
+    return out
+
+
+def verify_manifest(data, trusted=None) -> dict:
+    """Return *data* if its signature verifies against a trusted key; else raise
+    :class:`IntegrityError`. Never accepts an unsigned object."""
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    if not isinstance(data, dict) or not isinstance(data.get(SIGNATURE_FIELD), str):
+        raise IntegrityError("manifest is not signed")
+    try:
+        sig = base64.b64decode(data[SIGNATURE_FIELD], validate=True)
+    except ValueError as e:
+        raise IntegrityError("manifest signature is not valid base64") from e
+    message = canonical_manifest_bytes(data)
+    for key in (TRUSTED_RELEASE_KEYS if trusted is None else trusted):
+        try:
+            Ed25519PublicKey.from_public_bytes(base64.b64decode(key)).verify(sig, message)
+            return data
+        except (InvalidSignature, ValueError):
+            continue
+    raise IntegrityError("manifest signature does not match any trusted release key")
+
+
+def verify_signed_json(raw: bytes) -> dict:
+    """Parse *raw* JSON and :func:`verify_manifest` it."""
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as e:
+        raise IntegrityError(f"manifest is not valid JSON: {e}") from e
+    return verify_manifest(data)
+
+
+def require_sha256_for_sftp(manifest: dict) -> None:
+    """Every ``sftp://`` archive named by *manifest* (top-level ``url`` or an
+    ``update_info`` entry) must carry a ``sha256``, so the signature covers the
+    archive bytes too."""
+    entries = [manifest] + [e for e in manifest.get("update_info", []) if isinstance(e, dict)]
+    for entry in entries:
+        if is_sftp_url(entry.get("url")) and not entry.get("sha256"):
+            raise IntegrityError(f"signed manifest lists {entry['url']} without a sha256")
+
+
+class SigningKeyStore:
+    """The publisher's Ed25519 private key, DPAPI-encrypted on disk."""
+
+    def __init__(self, path=None, *, protect=dpapi_protect, unprotect=dpapi_unprotect):
+        self.path = Path(path) if path else DEFAULT_SIGNING_KEY_PATH
+        self._protect = protect
+        self._unprotect = unprotect
+
+    def load(self):
+        try:
+            return self._unprotect(base64.b64decode(self.path.read_bytes()))
+        except Exception:
+            return None
+
+    def save(self, private_raw: bytes) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_bytes(base64.b64encode(self._protect(private_raw)))
 
 
 # ── connection ───────────────────────────────────────────────────────────────
@@ -361,6 +471,21 @@ def _cli(argv) -> int:
     import getpass
 
     cmd = argv[0] if argv else "check"
+    if cmd in ("keygen", "pubkey"):
+        keys = SigningKeyStore()
+        private = keys.load()
+        if cmd == "keygen":
+            if private is not None and "--force" not in argv:
+                print(f"A signing key already exists at {keys.path} (use --force to replace).")
+                return 1
+            private, _pub = generate_signing_key()
+            keys.save(private)
+            print(f"Saved a new release signing key at {keys.path}")
+        elif private is None:
+            print("No signing key — run: python rtnas.py keygen")
+            return 1
+        print(f"Public key (pin in TRUSTED_RELEASE_KEYS): {public_key_of(private)}")
+        return 0
     store = CredentialStore()
     if cmd == "logout":
         store.clear()

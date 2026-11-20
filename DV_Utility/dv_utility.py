@@ -1024,6 +1024,11 @@ class AutoUpdateGUI(QMainWindow):
             threading.Thread(target=self.download_file, daemon=True).start()
         except rtnas.AuthError:
             self._nas_auth_failed()
+        except rtnas.IntegrityError:
+            log.exception('check_for_update: NAS manifest failed verification (target=%s)',
+                          getattr(self, 'target', '?'))
+            self.signals.update_status.emit("發佈檔簽章驗證失敗 (檔案可能被竄改), 未更新。請通知工具維護者")
+            self.signals.set_btn_enabled.emit(True)
         except Exception:
             log.exception('check_for_update FAILED (target=%s)', getattr(self, 'target', '?'))
             self.signals.update_status.emit("檢查更新失敗, 請確認網路連線 (詳見 log)")
@@ -1040,7 +1045,10 @@ class AutoUpdateGUI(QMainWindow):
             except rtnas.AuthError:
                 self._remember_nas_url(self.target)
                 raise
-            self.newest_version_info = json.loads(body.decode('utf-8'))
+            # 公司 NAS 人人可寫: manifest 必須有受信任的簽章, 且 NAS 上的 zip 必須帶 sha256 (spec §27.5)
+            manifest = rtnas.verify_signed_json(body)
+            rtnas.require_sha256_for_sftp(manifest)
+            self.newest_version_info = manifest
         else:
             r = requests.get(self.target, timeout=_HTTP_TIMEOUT)
             r.raise_for_status()
