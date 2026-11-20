@@ -192,6 +192,109 @@ class WorkerSignals(QObject):
     process_added      = Signal(object)   # 攜帶新 process 紀錄, 於 GUI thread append
     update_available   = Signal(object)   # 更新檢查: 發現新版 (攜帶 manifest info dict)
     show_repair        = Signal(str, bool)  # 權限修復引導: (icacls 指令, 有無 VS Code)
+    set_busy           = Signal(bool)       # 連線等「不知道要多久」的步驟: 進度條改轉動 loading
+
+
+_NAS_CONNECTING = "正在連線公司 RT NAS …"
+
+
+def check_nas_login(host, port, user, password):
+    """實際連一次 NAS 驗證帳密 (2~5 秒, 須在背景 thread 呼叫)。
+    回傳 None = 成功, 'auth' = 帳密錯誤, 其他字串 = 無法連線的原因。"""
+    try:
+        with rtnas.connect(host, port, user, password):
+            pass
+    except rtnas.AuthError:
+        return 'auth'
+    except Exception as e:  # RtnasError (網路 / host key) 或其他意外, 都當作無法連線
+        return str(e) or type(e).__name__
+    return None
+
+
+class NasLoginDialog(QDialog):
+    """登入公司 RT NAS 的視窗。按 OK 後在背景 thread 驗證帳密, 期間顯示 loading 並鎖住輸入,
+    視窗保持可重繪 —— 不得在 GUI thread 同步連線 (會凍住 2~5 秒, 使用者以為當掉)。"""
+
+    _checked = Signal(object)   # 背景 thread -> GUI thread: check_nas_login 的結果
+
+    def __init__(self, parent, host, port, user, check=check_nas_login):
+        super().__init__(parent)
+        self._host, self._port, self._check = host, port, check
+        self.username = self.password = None
+        self._busy = False
+        self.setWindowTitle("登入公司 RT NAS")
+        form = QFormLayout(self)
+        form.addRow(QLabel("此工具放在公司 RT NAS, 請輸入公司網域帳號密碼\n"
+                           "(即筆電登入密碼; 只存在本機, 以 Windows 加密保存)。"))
+        self.user_edit = QLineEdit(user)
+        self.pw_edit = QLineEdit()
+        self.pw_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        form.addRow("帳號", self.user_edit)
+        form.addRow("密碼", self.pw_edit)
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        form.addRow(self.status_label)
+        self.busy_bar = QProgressBar()
+        self.busy_bar.setRange(0, 0)            # 不定進度: 轉動的 loading
+        self.busy_bar.setTextVisible(False)
+        self.busy_bar.setFixedHeight(8)
+        self.busy_bar.hide()
+        form.addRow(self.busy_bar)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        buttons.accepted.connect(self.submit)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+        self._checked.connect(self._on_checked)
+        self.pw_edit.setFocus()
+
+    def _set_busy(self, busy):
+        self._busy = busy
+        self.busy_bar.setVisible(busy)
+        for w in (self.user_edit, self.pw_edit, self.ok_button):
+            w.setEnabled(not busy)
+
+    def submit(self):
+        """OK: 驗證欄位, 再到背景 thread 連線驗證。"""
+        if self._busy:
+            return
+        user = self.user_edit.text().strip()
+        if user and '\\' not in user:
+            user = rtnas.DOMAIN_PREFIX + user
+        password = self.pw_edit.text()
+        if not user or not password:
+            self.status_label.setText("請輸入帳號。" if not user else "請輸入密碼。")
+            return
+        self.username, self.password = user, password
+        self.status_label.setStyleSheet("")
+        self.status_label.setText(_NAS_CONNECTING + " (約需數秒)")
+        self._set_busy(True)
+        threading.Thread(
+            target=lambda: self._checked.emit(
+                self._check(self._host, self._port, user, password)),
+            daemon=True).start()
+
+    def _on_checked(self, outcome):
+        if not self._busy:          # 已按取消 —— 忽略遲到的結果
+            return
+        self._set_busy(False)
+        if outcome is None:
+            self.accept()
+        elif outcome == 'auth':
+            log.warning('NasLoginDialog: login rejected for %s', self.username)
+            self.status_label.setStyleSheet("color: #E5534B;")
+            self.status_label.setText("帳號或密碼錯誤, 請重新輸入。")
+            self.pw_edit.clear()
+            self.pw_edit.setFocus()
+        else:
+            log.error('NasLoginDialog: cannot connect: %s', outcome)
+            QMessageBox.warning(self, "無法連線", f"無法連線到 RT NAS:\n{outcome}")
+            self.reject()
+
+    def reject(self):
+        self._busy = False
+        super().reject()
 
 
 class AutoUpdateGUI(QMainWindow):
@@ -704,6 +807,9 @@ class AutoUpdateGUI(QMainWindow):
         self.signals.show_status_frame.connect(self._slot_show_status_frame)
         self.signals.hide_status_frame.connect(self.status_frame.hide)
         self.signals.set_btn_enabled.connect(self.start_button.setEnabled)
+        self.signals.set_busy.connect(self._slot_set_busy)
+        # 任何結束 (成功 / 失敗) 都會重新啟用按鈕 -> 同時收掉 loading
+        self.signals.set_btn_enabled.connect(lambda enabled: enabled and self._slot_set_busy(False))
         # queued connection (worker thread -> GUI thread): append + 刷新都在 GUI thread
         self.signals.process_added.connect(self._add_process)
         # 更新檢查 (worker thread -> GUI thread)
@@ -714,8 +820,17 @@ class AutoUpdateGUI(QMainWindow):
     #  Signal slots (run on main thread)
     # ------------------------------------------------------------------ #
     def _slot_update_progress(self, downloaded, total):
+        if self.progress.maximum() == 0:        # 從 loading 轉為實際下載進度
+            self.progress.setRange(0, 100)
         percent = int((downloaded / total) * 100)
         self.progress.setValue(percent)
+
+    def _slot_set_busy(self, busy):
+        """連線等不知道要多久的步驟: 進度條改為轉動的 loading (range 0..0)。"""
+        if busy:
+            self.progress.setRange(0, 0)
+        elif self.progress.maximum() == 0:
+            self.progress.setRange(0, 100)
 
     def _slot_update_release(self, version_text, note_text):
         self.version_label.setText(version_text)
@@ -952,44 +1067,12 @@ class AutoUpdateGUI(QMainWindow):
 
     def _prompt_nas_login(self):
         host, port, _path = rtnas.parse_sftp_url(self.nas_login_url())
-        user = rtnas.default_username()
-        while True:
-            dlg = QDialog(self)
-            dlg.setWindowTitle("登入公司 RT NAS")
-            form = QFormLayout(dlg)
-            form.addRow(QLabel("此工具放在公司 RT NAS, 請輸入公司網域帳號密碼\n"
-                               "(即筆電登入密碼; 只存在本機, 以 Windows 加密保存)。"))
-            user_edit = QLineEdit(user)
-            pw_edit = QLineEdit()
-            pw_edit.setEchoMode(QLineEdit.EchoMode.Password)
-            form.addRow("帳號", user_edit)
-            form.addRow("密碼", pw_edit)
-            buttons = QDialogButtonBox(
-                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-            buttons.accepted.connect(dlg.accept)
-            buttons.rejected.connect(dlg.reject)
-            form.addRow(buttons)
-            pw_edit.setFocus()
-            if dlg.exec() != QDialog.DialogCode.Accepted:
-                return False
-            user = user_edit.text().strip()
-            if user and '\\' not in user:
-                user = rtnas.DOMAIN_PREFIX + user
-            password = pw_edit.text()
-            try:
-                with rtnas.connect(host, port, user, password):
-                    pass
-            except rtnas.AuthError:
-                log.warning('prompt_nas_login: login rejected for %s', user)
-                QMessageBox.warning(self, "登入失敗", "帳號或密碼錯誤, 請重新輸入。")
-                continue
-            except rtnas.RtnasError as e:
-                log.exception('prompt_nas_login: connect failed')
-                QMessageBox.warning(self, "無法連線", f"無法連線到 RT NAS:\n{e}")
-                return False
-            self.nas_store.save(user, password)
-            log.info('prompt_nas_login: saved RT NAS login for %s', user)
-            return True
+        dlg = NasLoginDialog(self, host, port, rtnas.default_username())
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return False
+        self.nas_store.save(dlg.username, dlg.password)
+        log.info('prompt_nas_login: saved RT NAS login for %s', dlg.username)
+        return True
 
     def _nas_auth_failed(self):
         """背景 thread: NAS 拒絕已存的帳密 → 忘掉它, 下次點選開啟時重新詢問。"""
@@ -1001,6 +1084,9 @@ class AutoUpdateGUI(QMainWindow):
     def check_for_update(self):
         self.signals.show_status_frame.emit()
         self.signals.set_btn_enabled.emit(False)
+        if rtnas.is_sftp_url(getattr(self, 'target', '')):
+            self.signals.update_status.emit(_NAS_CONNECTING)
+            self.signals.set_busy.emit(True)
 
         try:
             self.get_newest_version()
@@ -1227,11 +1313,14 @@ class AutoUpdateGUI(QMainWindow):
         manifest 有 sha256 時兩者都驗證, 不符丟 rtnas.IntegrityError。"""
         expected = getattr(self, 'sha_by_url', {}).get(url)
         if rtnas.is_sftp_url(url):
+            self.signals.update_status.emit(_NAS_CONNECTING)
+            self.signals.set_busy.emit(True)
             try:
                 session, remote = rtnas.connect_url(url, store=self.nas_store)
             except rtnas.AuthError:
                 self._remember_nas_url(url)
                 raise
+            self.signals.update_status.emit("下載中 ...")
             with session as sftp:
                 return rtnas.download_to_file(sftp, remote, zip_path, expected_sha256=expected,
                                               progress_cb=self.update_progress)
