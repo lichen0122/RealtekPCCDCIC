@@ -1013,6 +1013,16 @@ class AutoUpdateGUI(QMainWindow):
                 self.update_required = False
             else:
                 self.update_required = True
+            # NAS 人人可寫: 不接受「舊版但簽章有效」的 manifest 被放回來讓工具降版 (spec §27.5)。
+            # https 工具維持原本「版本不同就更新」。
+            if (self.update_required and rtnas.is_sftp_url(getattr(self, 'target', ''))
+                    and self.current_version_info.get('version')
+                    and not rtnas.is_newer(self.newest_version_info.get('version'),
+                                           self.current_version_info['version'])):
+                log.warning('check_for_update: NAS manifest %s is not newer than installed %s; '
+                            'refusing to roll back', self.newest_version_info.get('version'),
+                            self.current_version_info['version'])
+                self.update_required = False
             log.info('check_for_update: update_required=%s (current=%s newest=%s)',
                      self.update_required,
                      self.current_version_info.get('version'),
@@ -1046,7 +1056,8 @@ class AutoUpdateGUI(QMainWindow):
                 self._remember_nas_url(self.target)
                 raise
             # 公司 NAS 人人可寫: manifest 必須有受信任的簽章, 且 NAS 上的 zip 必須帶 sha256 (spec §27.5)
-            manifest = rtnas.verify_signed_json(body)
+            manifest = rtnas.verify_signed_json(
+                body, expected_path=rtnas.parse_sftp_url(self.target)[2])
             rtnas.require_sha256_for_sftp(manifest)
             self.newest_version_info = manifest
         else:

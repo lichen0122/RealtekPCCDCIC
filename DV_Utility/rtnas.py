@@ -55,6 +55,7 @@ TRUSTED_RELEASE_KEYS = (
     "MdUcG0n/9RNBWZXxj4hIisfTwQmZFJFONW8XeUM85FM=",   # lichen.liu, created 2026-11-20
 )
 SIGNATURE_FIELD = "signature"
+PATH_FIELD = "nas_path"   # signed: where the publisher put this file (anti-swap)
 DEFAULT_SIGNING_KEY_PATH = Path.home() / ".PCDV" / "rtnas" / "release_ed25519.key"
 _CHUNK = 1024 * 1024
 
@@ -241,9 +242,11 @@ def sign_manifest(data: dict, private_raw: bytes) -> dict:
     return out
 
 
-def verify_manifest(data, trusted=None) -> dict:
+def verify_manifest(data, trusted=None, expected_path=None) -> dict:
     """Return *data* if its signature verifies against a trusted key; else raise
-    :class:`IntegrityError`. Never accepts an unsigned object."""
+    :class:`IntegrityError`. Never accepts an unsigned object. With
+    *expected_path*, the signed ``nas_path`` must equal it, so a validly signed
+    file copied to another product's location is refused."""
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -253,23 +256,48 @@ def verify_manifest(data, trusted=None) -> dict:
         sig = base64.b64decode(data[SIGNATURE_FIELD], validate=True)
     except ValueError as e:
         raise IntegrityError("manifest signature is not valid base64") from e
-    message = canonical_manifest_bytes(data)
+    try:
+        message = canonical_manifest_bytes(data)
+    except (TypeError, ValueError) as e:  # incl. UnicodeEncodeError (lone surrogate)
+        raise IntegrityError(f"manifest cannot be canonicalised: {e}") from e
     for key in (TRUSTED_RELEASE_KEYS if trusted is None else trusted):
         try:
             Ed25519PublicKey.from_public_bytes(base64.b64decode(key)).verify(sig, message)
-            return data
+            break
         except (InvalidSignature, ValueError):
             continue
-    raise IntegrityError("manifest signature does not match any trusted release key")
+    else:
+        raise IntegrityError("manifest signature does not match any trusted release key")
+    if expected_path is not None and data.get(PATH_FIELD) != expected_path:
+        raise IntegrityError(
+            f"signed manifest belongs at {data.get(PATH_FIELD)!r}, not {expected_path!r}")
+    return data
 
 
-def verify_signed_json(raw: bytes) -> dict:
+def verify_signed_json(raw: bytes, expected_path=None) -> dict:
     """Parse *raw* JSON and :func:`verify_manifest` it."""
     try:
         data = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as e:
         raise IntegrityError(f"manifest is not valid JSON: {e}") from e
-    return verify_manifest(data)
+    return verify_manifest(data, expected_path=expected_path)
+
+
+def _version_key(v):
+    import re
+    return tuple(int(n) for n in re.findall(r"\d+", str(v)))
+
+
+def is_newer(remote, local) -> bool:
+    """Whether *remote* is a strictly newer version than *local* (numeric parts
+    compared in order: ``YYYY-MM-DD-NNN``, ``vYYYYMMDD.N``). A NAS client only
+    moves forward, so an old validly-signed manifest replayed onto the
+    world-writable NAS cannot roll it back. ``local`` ``None`` = not installed."""
+    if not remote or not _version_key(remote):
+        return False
+    if not local or not _version_key(local):
+        return True
+    return _version_key(remote) > _version_key(local)
 
 
 def require_sha256_for_sftp(manifest: dict) -> None:
@@ -298,7 +326,9 @@ class SigningKeyStore:
 
     def save(self, private_raw: bytes) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_bytes(base64.b64encode(self._protect(private_raw)))
+        tmp = self.path.with_name(self.path.name + ".tmp")
+        tmp.write_bytes(base64.b64encode(self._protect(private_raw)))
+        os.replace(tmp, self.path)
 
 
 # ── connection ───────────────────────────────────────────────────────────────
@@ -475,9 +505,16 @@ def _cli(argv) -> int:
         keys = SigningKeyStore()
         private = keys.load()
         if cmd == "keygen":
-            if private is not None and "--force" not in argv:
-                print(f"A signing key already exists at {keys.path} (use --force to replace).")
-                return 1
+            if keys.path.exists():
+                if "--force" not in argv:
+                    print(f"A signing key file already exists at {keys.path} "
+                          f"(use --force to replace; the old file is kept as a backup).")
+                    return 1
+                import time
+                backup = keys.path.with_name(
+                    f"{keys.path.name}.bak{time.strftime('%Y%m%d%H%M%S')}")
+                os.replace(keys.path, backup)
+                print(f"Old key file moved to {backup}")
             private, _pub = generate_signing_key()
             keys.save(private)
             print(f"Saved a new release signing key at {keys.path}")

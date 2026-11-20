@@ -411,3 +411,53 @@ def test_trusted_release_keys_are_pinned():
     assert rtnas.TRUSTED_RELEASE_KEYS
     for key in rtnas.TRUSTED_RELEASE_KEYS:
         assert len(base64.b64decode(key)) == 32
+
+
+# ── review round 2: replay / path binding / key safety ───────────────────────
+
+@pytest.mark.parametrize("remote,local,want", [
+    ("2026-11-20-001", "2026-11-20-000", True),
+    ("2026-11-20-000", "2026-11-20-001", False),
+    ("2026-11-20-000", "2026-11-20-000", False),
+    ("v20261008.10", "v20261008.2", True),     # numeric, not string order
+    ("2026-11-20-000", None, True),
+    ("", "2026-11-20-000", False),
+])
+def test_is_newer(remote, local, want):
+    assert rtnas.is_newer(remote, local) is want
+
+
+def test_verify_binds_the_manifest_to_its_nas_path(signing_key):
+    signed = rtnas.sign_manifest({"v": 1, "nas_path": "/d/A/skills_version.json"}, signing_key)
+    assert rtnas.verify_manifest(signed, expected_path="/d/A/skills_version.json")
+    with pytest.raises(rtnas.IntegrityError):
+        rtnas.verify_manifest(signed, expected_path="/d/B/skills_version.json")
+    unbound = rtnas.sign_manifest({"v": 1}, signing_key)
+    with pytest.raises(rtnas.IntegrityError):
+        rtnas.verify_manifest(unbound, expected_path="/d/A/skills_version.json")
+
+
+def test_verify_lone_surrogate_is_an_integrity_error(signing_key):
+    with pytest.raises(rtnas.IntegrityError):
+        rtnas.verify_manifest({"v": "\ud800", "signature": "AAAA"})
+
+
+def test_keygen_refuses_when_a_key_file_exists_even_if_unreadable(monkeypatch, tmp_path, capsys):
+    path = tmp_path / "release_ed25519.key"
+    path.write_bytes(b"not decryptable")
+    monkeypatch.setattr(rtnas, "DEFAULT_SIGNING_KEY_PATH", path)
+    assert rtnas._cli(["keygen"]) == 1
+    assert path.read_bytes() == b"not decryptable"
+
+
+def test_keygen_force_keeps_a_backup(monkeypatch, tmp_path):
+    path = tmp_path / "release_ed25519.key"
+    path.write_bytes(b"old key")
+    monkeypatch.setattr(rtnas, "DEFAULT_SIGNING_KEY_PATH", path)
+    real = rtnas.SigningKeyStore
+    monkeypatch.setattr(rtnas, "SigningKeyStore",
+                        lambda p=None: real(path, protect=_fake_protect, unprotect=_fake_unprotect))
+    assert rtnas._cli(["keygen", "--force"]) == 0
+    backups = list(tmp_path.glob("release_ed25519.key.bak*"))
+    assert backups and backups[0].read_bytes() == b"old key"
+

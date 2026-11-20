@@ -152,6 +152,7 @@ def test_get_newest_version_reads_sftp_manifest(monkeypatch):
     manifest = {
         'target_directory': 'Tool', 'current_version': 'v.json', 'exe_name': 'app/app.exe',
         'version': '1', 'release_note': '說明',
+        'nas_path': '/Audio/Temp_RT/lichen.liu/Tool/v.json',
         'update_info': [{'url': SFTP_URL, 'overwrite': True, 'extract_to': 'install_dir',
                          'sha256': 'ab' * 32}],
     }
@@ -311,6 +312,7 @@ def _sftp_manifest_inst(monkeypatch, manifest_bytes):
 
 
 _MANIFEST = {'target_directory': 'Tool', 'current_version': 'v.json', 'exe_name': 'app/app.exe',
+             'nas_path': '/Audio/Temp_RT/lichen.liu/Tool/v.json',
              'version': '1', 'update_info': [{'url': SFTP_URL, 'overwrite': True,
                                               'extract_to': 'install_dir', 'sha256': 'ab' * 32}]}
 
@@ -353,3 +355,48 @@ def test_check_for_update_reports_a_bad_signature(monkeypatch):
     inst.get_newest_version = _bad
     inst.check_for_update()
     assert any('簽章驗證失敗' in s for s in statuses)
+
+
+# ── review round 2: path binding + no rollback from the NAS ──────────────────
+
+def test_signed_manifest_of_another_tool_is_rejected(monkeypatch):
+    private, public = rtnas.generate_signing_key()
+    monkeypatch.setattr(rtnas, 'TRUSTED_RELEASE_KEYS', (public,))
+    other = dict(_MANIFEST, nas_path='/Audio/Temp_RT/lichen.liu/OtherTool/v.json')
+    inst = _sftp_manifest_inst(monkeypatch, json.dumps(rtnas.sign_manifest(other, private)).encode('utf-8'))
+    with pytest.raises(rtnas.IntegrityError):
+        inst.get_newest_version()
+
+
+def _versions_inst(target, current, newest):
+    inst = dv_utility.AutoUpdateGUI.__new__(dv_utility.AutoUpdateGUI)
+    inst.signals = dv_utility.WorkerSignals()
+    inst.target = target
+    inst.get_newest_version = lambda: setattr(inst, 'newest_version_info', {'version': newest})
+    inst.get_current_version = lambda: setattr(inst, 'current_version_info', {'version': current})
+    inst.get_extract_info = lambda: None
+    return inst
+
+
+def test_nas_tool_refuses_rollback(monkeypatch):
+    monkeypatch.setattr(dv_utility.threading, 'Thread',
+                        lambda *a, **k: type('T', (), {'start': lambda self: None})())
+    inst = _versions_inst(SFTP_URL, '2026-11-20-005', '2026-11-19-000')
+    inst.check_for_update()
+    assert inst.update_required is False
+
+
+def test_nas_tool_moves_forward(monkeypatch):
+    monkeypatch.setattr(dv_utility.threading, 'Thread',
+                        lambda *a, **k: type('T', (), {'start': lambda self: None})())
+    inst = _versions_inst(SFTP_URL, '2026-11-20-005', '2026-11-21-000')
+    inst.check_for_update()
+    assert inst.update_required is True
+
+
+def test_https_tool_still_updates_on_any_difference(monkeypatch):
+    monkeypatch.setattr(dv_utility.threading, 'Thread',
+                        lambda *a, **k: type('T', (), {'start': lambda self: None})())
+    inst = _versions_inst('https://x/v.json', '2026-11-20-005', '2026-11-19-000')
+    inst.check_for_update()
+    assert inst.update_required is True
