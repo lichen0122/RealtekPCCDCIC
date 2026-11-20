@@ -8,7 +8,7 @@ Realtek 內部 DV 工具:PySide6 GUI,以 **Nuitka onefile** 打包成單一 `DV_
 
 ## 環境
 
-- Python 3.12 + `venv/`(已含 nuitka、pyside6、pillow、requests、google-cloud-storage)。
+- Python 3.12 + `venv/`(已含 nuitka、pyside6、pillow、requests、google-cloud-storage、paramiko)。
 - Windows。簽章需 Windows SDK 的 `signtool.exe`(本機已具備)。
 
 ## 建置 + 打包 — `release_dv_utility.py`
@@ -74,3 +74,15 @@ python upload_to_gcs.py
 
 - 簽章管線已本機驗證(signtool 就緒、可連 DigiCert 時間戳、sign+timestamp+embed 正常)。
 - **唯一缺的是正式 CA code-signing 憑證。** 沒有它,無法產出「受信任的已簽章」build。
+
+## 工具放在公司 RT NAS (SFTP)
+
+工具的 version.json 網址 (setting.json) 或 `update_info[].url` 寫成
+`sftp://rt-nas.realsil.com.cn/Audio/Temp_RT/lichen.liu/<工具>/...` 時,DV_Utility 改用
+`rtnas.py` 以**使用者自己的網域帳號**下載;`https://` 照舊。
+
+- 第一次開啟這類工具會跳出「登入公司 RT NAS」視窗,實際連線驗證通過才存;密碼以 Windows
+  DPAPI 加密存在 `~/.PCDV/rtnas/credential.json`,同一台電腦的其他工具共用。
+- NAS 拒絕已存的密碼 (例如公司改密碼) 時會忘掉它,下次按開啟重新詢問。
+- 只接受釘選的 rt-nas host key;`update_info[]` 帶 `sha256` 時下載後比對,不符不安裝。
+- `rtnas.py` 與 pcdic_skills 的同名檔逐字相同,改一份要同步另一份。

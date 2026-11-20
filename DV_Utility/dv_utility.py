@@ -3,7 +3,8 @@ from ctypes import windll
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QLabel, QComboBox, QListView, QPushButton,
     QProgressBar, QGridLayout, QVBoxLayout, QHBoxLayout, QFrame, QFileDialog,
-    QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit
+    QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QTextEdit,
+    QDialog, QDialogButtonBox, QFormLayout, QLineEdit
 )
 from PySide6.QtCore import Qt, Signal, QObject, QTimer
 from PySide6.QtGui import QFont, QIcon, QShortcut, QKeySequence, QPixmap, QTextOption
@@ -17,6 +18,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import update_check
 import update_install
+import rtnas
 
 
 # --------------------------------------------------------------------------- #
@@ -903,7 +905,77 @@ class AutoUpdateGUI(QMainWindow):
             self.work_dir = self.choose_work_dir.currentText()
 
         if self.check_work_dir():
+            if self.needs_nas_login() and not self.prompt_nas_login():
+                log.info('ensure_work_dir: RT NAS login cancelled; not updating')
+                return
             threading.Thread(target=self.check_for_update, daemon=True).start()
+
+    # ------------------------------------------------------------------ #
+    #  RT NAS (SFTP) 登入 —— 工具放在公司 NAS 時, 用使用者自己的網域帳號下載
+    # ------------------------------------------------------------------ #
+    @property
+    def nas_store(self):
+        store = self.__dict__.get('_nas_store')
+        if store is None:
+            store = self.__dict__['_nas_store'] = rtnas.CredentialStore()
+        return store
+
+    @nas_store.setter
+    def nas_store(self, store):
+        self.__dict__['_nas_store'] = store
+
+    def needs_nas_login(self):
+        """所選工具放在 RT NAS 上, 且這台電腦還沒存過 NAS 登入。"""
+        return rtnas.is_sftp_url(getattr(self, 'target', '')) and self.nas_store.load() is None
+
+    def prompt_nas_login(self):
+        """GUI thread: 詢問網域帳密, 實際連線驗證通過才存 (DPAPI 加密)。取消回 False。"""
+        host, port, _path = rtnas.parse_sftp_url(self.target)
+        user = rtnas.default_username()
+        while True:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("登入公司 RT NAS")
+            form = QFormLayout(dlg)
+            form.addRow(QLabel("此工具放在公司 RT NAS, 請輸入公司網域帳號密碼\n"
+                               "(即筆電登入密碼; 只存在本機, 以 Windows 加密保存)。"))
+            user_edit = QLineEdit(user)
+            pw_edit = QLineEdit()
+            pw_edit.setEchoMode(QLineEdit.EchoMode.Password)
+            form.addRow("帳號", user_edit)
+            form.addRow("密碼", pw_edit)
+            buttons = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            buttons.accepted.connect(dlg.accept)
+            buttons.rejected.connect(dlg.reject)
+            form.addRow(buttons)
+            pw_edit.setFocus()
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return False
+            user = user_edit.text().strip()
+            if user and '\\' not in user:
+                user = rtnas.DOMAIN_PREFIX + user
+            password = pw_edit.text()
+            try:
+                with rtnas.connect(host, port, user, password):
+                    pass
+            except rtnas.AuthError:
+                log.warning('prompt_nas_login: login rejected for %s', user)
+                QMessageBox.warning(self, "登入失敗", "帳號或密碼錯誤, 請重新輸入。")
+                continue
+            except rtnas.RtnasError as e:
+                log.exception('prompt_nas_login: connect failed')
+                QMessageBox.warning(self, "無法連線", f"無法連線到 RT NAS:\n{e}")
+                return False
+            self.nas_store.save(user, password)
+            log.info('prompt_nas_login: saved RT NAS login for %s', user)
+            return True
+
+    def _nas_auth_failed(self):
+        """背景 thread: NAS 拒絕已存的帳密 → 忘掉它, 下次點選開啟時重新詢問。"""
+        log.error('RT NAS login rejected; forgetting saved credentials')
+        self.nas_store.clear()
+        self.signals.update_status.emit("RT NAS 登入失敗 (密碼可能已變更), 請再按一次開啟並重新輸入密碼")
+        self.signals.set_btn_enabled.emit(True)
 
     def check_for_update(self):
         self.signals.show_status_frame.emit()
@@ -929,6 +1001,8 @@ class AutoUpdateGUI(QMainWindow):
             # daemon: 使用者關窗後, 行程不得為了等下載跑完而殘留背景 (非 daemon 會被
             # interpreter shutdown join 住, 之後還會憑空 Popen 工具視窗)
             threading.Thread(target=self.download_file, daemon=True).start()
+        except rtnas.AuthError:
+            self._nas_auth_failed()
         except Exception:
             log.exception('check_for_update FAILED (target=%s)', getattr(self, 'target', '?'))
             self.signals.update_status.emit("檢查更新失敗, 請確認網路連線 (詳見 log)")
@@ -939,9 +1013,13 @@ class AutoUpdateGUI(QMainWindow):
 
     def get_newest_version(self):
         log.info('get_newest_version: fetching %s', self.target)
-        r = requests.get(self.target, timeout=_HTTP_TIMEOUT)
-        r.raise_for_status()
-        self.newest_version_info = json.loads(r.text)
+        if rtnas.is_sftp_url(self.target):
+            self.newest_version_info = json.loads(
+                rtnas.fetch_url(self.target, store=self.nas_store).decode('utf-8'))
+        else:
+            r = requests.get(self.target, timeout=_HTTP_TIMEOUT)
+            r.raise_for_status()
+            self.newest_version_info = json.loads(r.text)
         self.target_directory    = self.get_install_dir() + "/" + self.newest_version_info["target_directory"]
         self.update_info         = self.newest_version_info['update_info']
         self.current_version     = self.target_directory + "/" + self.newest_version_info["current_version"]
@@ -974,7 +1052,10 @@ class AutoUpdateGUI(QMainWindow):
 
     def get_extract_info(self):
         self.extract_info = []
+        self.sha_by_url = {}
         for info in self.update_info:
+            if info.get("sha256"):
+                self.sha_by_url[info["url"]] = info["sha256"]
             url        = info["url"]
             overwrite  = info["overwrite"]
             extract_to = info["extract_to"]
@@ -1042,24 +1123,7 @@ class AutoUpdateGUI(QMainWindow):
                 if case1 or case2:
                     log.info('download_file: downloading %s -> %s', url, zip_path)
                     self.signals.update_status.emit("下載中 ...")
-                    with requests.get(url, stream=True, timeout=_HTTP_TIMEOUT) as r:
-                        r.raise_for_status()
-                        try:
-                            total_length = int(r.headers.get('content-length'))
-                        except Exception:
-                            total_length = 36408565
-                        downloaded = 0
-                        next_mark  = _LOG_EVERY_BYTES
-                        with open(zip_path, 'wb') as f:
-                            for chunk in r.iter_content(chunk_size=8192):
-                                if chunk:
-                                    downloaded += len(chunk)
-                                    f.write(chunk)
-                                    self.update_progress(downloaded, total_length)
-                                    if downloaded >= next_mark:
-                                        log.info('download_file progress: %d/%d bytes (%s)',
-                                                 downloaded, total_length, zip_file_name)
-                                        next_mark += _LOG_EVERY_BYTES
+                    downloaded = self._fetch_to_file(url, zip_path, zip_file_name)
                     log.info('download_file: download done %d bytes -> %s',
                              downloaded, zip_path)
 
@@ -1070,6 +1134,18 @@ class AutoUpdateGUI(QMainWindow):
                         failure = res
                 else:
                     log.info('download_file: skip %s (already present / no update needed)', url)
+        except rtnas.AuthError:
+            self._discard_temp_zip(zip_path)
+            self._install_busy = False
+            self._nas_auth_failed()
+            return
+        except rtnas.IntegrityError:
+            log.exception('download_file: SHA-256 mismatch — not installing')
+            self._discard_temp_zip(zip_path)
+            self.signals.update_status.emit("下載的檔案驗證失敗 (內容與發佈版本不符), 未安裝。請稍後再試或通知工具維護者")
+            self.signals.set_btn_enabled.emit(True)
+            self._install_busy = False
+            return
         except PermissionError:
             # 寫檔被拒與網路無關, 須分開講清楚, 使用者/IT 才不會往網路方向查
             log.exception('download_file FAILED (寫檔被拒; cwd=%s)', os.getcwd())
@@ -1101,6 +1177,37 @@ class AutoUpdateGUI(QMainWindow):
                     update_install.FAIL_MESSAGES.get(failure.kind,
                                                      update_install.FAIL_MESSAGES['error']))
                 self.signals.set_btn_enabled.emit(True)
+
+    def _fetch_to_file(self, url, zip_path, zip_file_name):
+        """下載 url 到 zip_path, 回傳 bytes 數。sftp:// 走 RT NAS, 其餘走 requests;
+        manifest 有 sha256 時兩者都驗證, 不符丟 rtnas.IntegrityError。"""
+        expected = getattr(self, 'sha_by_url', {}).get(url)
+        if rtnas.is_sftp_url(url):
+            session, remote = rtnas.connect_url(url, store=self.nas_store)
+            with session as sftp:
+                return rtnas.download_to_file(sftp, remote, zip_path, expected_sha256=expected,
+                                              progress_cb=self.update_progress)
+        with requests.get(url, stream=True, timeout=_HTTP_TIMEOUT) as r:
+            r.raise_for_status()
+            try:
+                total_length = int(r.headers.get('content-length'))
+            except Exception:
+                total_length = 36408565
+            downloaded = 0
+            next_mark  = _LOG_EVERY_BYTES
+            with open(zip_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        downloaded += len(chunk)
+                        f.write(chunk)
+                        self.update_progress(downloaded, total_length)
+                        if downloaded >= next_mark:
+                            log.info('download_file progress: %d/%d bytes (%s)',
+                                     downloaded, total_length, zip_file_name)
+                            next_mark += _LOG_EVERY_BYTES
+        if expected and rtnas.sha256_file(zip_path).lower() != expected.lower():
+            raise rtnas.IntegrityError(f'SHA-256 mismatch for {url}')
+        return downloaded
 
     def _report_permission_denied(self):
         """權限異常的統一出口: 狀態訊息 + 修復引導 (icacls 指令, VS Code / PowerShell)。"""
