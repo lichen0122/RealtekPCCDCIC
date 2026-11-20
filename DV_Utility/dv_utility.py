@@ -196,6 +196,37 @@ class WorkerSignals(QObject):
 
 
 _NAS_CONNECTING = "正在連線公司 RT NAS …"
+_NAS_UNREACHABLE = "無法連線到公司 RT NAS, 請確認已連上公司網路或 VPN 後再試"
+
+
+def _nas_cache_path(install_dir, target):
+    import hashlib
+    name = hashlib.sha1(target.encode('utf-8')).hexdigest()[:16] + '.json'
+    return os.path.join(install_dir, '.nas_cache', name)
+
+
+def save_nas_manifest_cache(install_dir, target, manifest):
+    """記下 NAS 工具的安裝資訊 (已驗章的 manifest 子集), 供連不上 NAS 時開啟已安裝版本。"""
+    keep = {k: manifest.get(k) for k in
+            ('target_directory', 'current_version', 'exe_name', 'version', 'release_note')}
+    path = _nas_cache_path(install_dir, target)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(keep, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    except OSError:
+        log.exception('save_nas_manifest_cache failed (%s)', path)
+
+
+def load_nas_manifest_cache(install_dir, target):
+    try:
+        with open(_nas_cache_path(install_dir, target), encoding='utf-8') as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
 
 
 def check_nas_login(host, port, user, password):
@@ -289,7 +320,7 @@ class NasLoginDialog(QDialog):
             self.pw_edit.setFocus()
         else:
             log.error('NasLoginDialog: cannot connect: %s', outcome)
-            QMessageBox.warning(self, "無法連線", f"無法連線到 RT NAS:\n{outcome}")
+            QMessageBox.warning(self, "無法連線", f"{_NAS_UNREACHABLE}。\n\n(詳細: {outcome})")
             self.reject()
 
     def reject(self):
@@ -1074,6 +1105,27 @@ class AutoUpdateGUI(QMainWindow):
         log.info('prompt_nas_login: saved RT NAS login for %s', dlg.username)
         return True
 
+    def _open_installed_nas_tool(self):
+        """連不上 NAS (不在公司內網): 若此工具已安裝, 直接開啟已安裝的版本 (不更新)。
+        安裝資訊來自上次成功連線時存下的 manifest; 沒有記錄或執行檔不在就回傳 False。"""
+        cached = load_nas_manifest_cache(self.get_install_dir(), getattr(self, 'target', ''))
+        if not cached or not cached.get('target_directory') or not cached.get('exe_name'):
+            return False
+        self.target_directory = self.get_install_dir() + "/" + cached['target_directory']
+        self.exe_name = cached['exe_name']
+        self.current_version = self.target_directory + "/" + (cached.get('current_version') or '')
+        if not os.path.isfile(f"{self.target_directory}/{self.exe_name}"):
+            return False
+        self.get_current_version()
+        installed = self.current_version_info.get('version') or cached.get('version') or '?'
+        self.newest_version_info = {'version': installed}
+        self.release_note = cached.get('release_note', '')
+        log.info('offline: opening installed %s %s', self.exe_name, installed)
+        self.start()
+        self.signals.update_release.emit(
+            f"當前版本 {installed} (無法連線公司 RT NAS, 未檢查更新)", self.release_note)
+        return True
+
     def _nas_auth_failed(self):
         """背景 thread: NAS 拒絕已存的帳密 → 忘掉它, 下次點選開啟時重新詢問。"""
         log.error('RT NAS login rejected; forgetting saved credentials')
@@ -1125,6 +1177,11 @@ class AutoUpdateGUI(QMainWindow):
                           getattr(self, 'target', '?'))
             self.signals.update_status.emit("發佈檔簽章驗證失敗 (檔案可能被竄改), 未更新。請通知工具維護者")
             self.signals.set_btn_enabled.emit(True)
+        except rtnas.RtnasError:
+            log.exception('check_for_update: RT NAS unreachable (target=%s)', getattr(self, 'target', '?'))
+            if not self._open_installed_nas_tool():
+                self.signals.update_status.emit(_NAS_UNREACHABLE)
+                self.signals.set_btn_enabled.emit(True)
         except Exception:
             log.exception('check_for_update FAILED (target=%s)', getattr(self, 'target', '?'))
             self.signals.update_status.emit("檢查更新失敗, 請確認網路連線 (詳見 log)")
@@ -1146,6 +1203,7 @@ class AutoUpdateGUI(QMainWindow):
                 body, expected_path=rtnas.parse_sftp_url(self.target)[2])
             rtnas.require_sha256_for_sftp(manifest)
             self.newest_version_info = manifest
+            save_nas_manifest_cache(self.get_install_dir(), self.target, manifest)
         else:
             r = requests.get(self.target, timeout=_HTTP_TIMEOUT)
             r.raise_for_status()
