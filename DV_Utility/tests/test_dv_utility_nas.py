@@ -204,3 +204,61 @@ def test_ensure_work_dir_aborts_when_login_cancelled(monkeypatch, tmp_path):
                         lambda *a, **k: started.append(k) or pytest.fail('must not start'))
     inst.ensure_work_dir()
     assert started == []
+
+
+# ── 向下相容: 非 NAS 工具行為完全不變 (DV_Utility 是共用入口, 工具不全是我們的) ──
+
+def test_https_tool_installs_without_nas_or_login(monkeypatch, tmp_path):
+    """https:// 工具 (manifest 沒有 sha256) 照舊用 requests 安裝, 不碰 NAS 也不讀登入。"""
+    url = f'https://example.invalid/{ZIP}'
+    payload = _zip_bytes({'a.txt': b'A'})
+    inst, statuses, versions, extract_dir, stage, store = _make_inst(
+        monkeypatch, tmp_path, {})
+    inst.extract_info = [(url, str(extract_dir), True)]
+    inst.sha_by_url = {}
+
+    class _Resp:
+        headers = {'content-length': str(len(payload))}
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size=8192):
+            yield payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(dv_utility.requests, 'get', lambda *a, **k: _Resp())
+    monkeypatch.setattr(dv_utility.rtnas, 'connect_url',
+                        lambda *a, **k: pytest.fail('https tool must not use the NAS'))
+    store.load = lambda: pytest.fail('https tool must not read the NAS login')
+    monkeypatch.chdir(tmp_path)
+
+    inst.download_file()
+
+    assert versions == [{'version': '9.9.9'}]
+    assert (extract_dir / 'a.txt').read_bytes() == b'A'
+
+
+def test_https_target_get_newest_version_uses_requests_only(monkeypatch):
+    inst = dv_utility.AutoUpdateGUI.__new__(dv_utility.AutoUpdateGUI)
+    inst.target = 'https://storage.googleapis.com/b/v.json'
+    inst.get_install_dir = lambda: 'C:/PCDV'
+    body = json.dumps({'target_directory': 'T', 'current_version': 'v.json',
+                       'exe_name': 'a.exe', 'update_info': []})
+
+    class _R:
+        text = body
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(dv_utility.requests, 'get', lambda url, timeout=None: _R())
+    monkeypatch.setattr(dv_utility.rtnas, 'fetch_url',
+                        lambda *a, **k: pytest.fail('https manifest must not use the NAS'))
+    inst.get_newest_version()
+    assert inst.exe_name == 'a.exe'
