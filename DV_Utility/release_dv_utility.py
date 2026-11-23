@@ -87,6 +87,55 @@ def sha256_of(path):
     return h.hexdigest()
 
 
+# 上一版已簽好的 dv_updater.exe (package 步驟會複製到這裡) + 它的輸入指紋。
+_signed_updater = os.path.join(_here, f'{UPDATER_NAME}.exe')
+_updater_stamp = os.path.join(_here, f'{UPDATER_NAME}.stamp.json')
+
+
+def updater_fingerprint(script=None, png=None):
+    """dv_updater.exe 的輸入指紋: 原始碼 + 內嵌 icon + Nuitka / Python 版本。
+    任一改變 -> 指紋不同 -> 重新 build + 送簽。dv_updater.py 只 import stdlib + requests。"""
+    import importlib.metadata
+    h = hashlib.sha256()
+    for path in (script or _updater_script, png or _png):
+        h.update(os.path.basename(path).encode('utf-8'))
+        h.update(sha256_of(path).encode('ascii'))
+    for dist in ('nuitka', 'requests'):
+        try:
+            h.update(f'{dist}={importlib.metadata.version(dist)}'.encode('utf-8'))
+        except importlib.metadata.PackageNotFoundError:
+            h.update(f'{dist}=?'.encode('utf-8'))
+    h.update(sys.version.encode('utf-8'))
+    return h.hexdigest()
+
+
+def reusable_updater(fingerprint, exe=None, stamp=None):
+    """上一版簽好的 dv_updater.exe 可沿用時回傳其路徑, 否則 None。
+    條件: stamp 的指紋與現在相同, 且 exe 的 sha256 等於簽完當下記錄的值 (沒被重 build 蓋掉)。"""
+    exe = exe or _signed_updater
+    stamp = stamp or _updater_stamp
+    try:
+        with open(stamp, encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get('inputs') != fingerprint or not os.path.isfile(exe):
+        return None
+    if sha256_of(exe) != data.get('exe_sha256'):
+        return None
+    return exe
+
+
+def write_updater_stamp(fingerprint, app_version, exe=None, stamp=None):
+    """記錄「這顆已簽的 dv_updater.exe 是由這組輸入 build 出來的」, 供下一版沿用。"""
+    exe = exe or _signed_updater
+    stamp = stamp or _updater_stamp
+    data = {'inputs': fingerprint, 'exe_sha256': sha256_of(exe), 'signed_in': app_version}
+    with open(stamp, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+    return data
+
+
 def write_manifest(app_version, zip_path, out_path=None):
     """依「當下的 zip_path」算出 sha256/size, 寫出 GCS manifest (publish_version.json)。
 
@@ -254,10 +303,12 @@ def _check_ctc_prereqs(hsm_dir=None):
 
 def _sign_both(built_exe, built_updater, sign_ctc):
     """簽兩顆 exe: sign_ctc=True 走 CTC (hsm-cli, 半自動; 送簽前先跑 OPSWAT 預檢,
-    再等主管 FEDEX 核准); 否則走既有 signtool sign_exe (未設憑證則略過)。"""
+    再等主管 FEDEX 核准); 否則走既有 signtool sign_exe (未設憑證則略過)。
+    built_updater=None: 沿用上一版已簽的更新器, 只簽主程式。"""
+    exes = [e for e in (built_updater, built_exe) if e]
     if not sign_ctc:
-        sign_exe(built_updater)
-        sign_exe(built_exe)
+        for exe in exes:
+            sign_exe(exe)
         return
     import ctc_sign
     p = _resolve_ctc_params()   # 與 build 前 _check_ctc_prereqs 用同一份解析結果
@@ -270,7 +321,7 @@ def _sign_both(built_exe, built_updater, sign_ctc):
         os.environ.setdefault('FSANITIZE_CLI', fs_cli)
     if os.path.isfile(fs_cfg):
         os.environ.setdefault('FSANITIZE_CONFIG', fs_cfg)
-    for exe in (built_updater, built_exe):   # 更新器少改, 但一次發佈仍一起簽較單純
+    for exe in exes:
         print(f'CTC 簽署 {exe} … (送簽前先跑 OPSWAT 預檢; 送簽後如需核准請至 FEDEX)')
         tmp = exe + '.signed'
         ctc_sign.sign_file(exe, out_path=tmp, uuid=p['uuid'], hsm_cli=p['hsm_cli'],
@@ -280,7 +331,7 @@ def _sign_both(built_exe, built_updater, sign_ctc):
         print(f'CTC 簽署完成 -> {exe}')
 
 
-def main(sign_ctc=True):
+def main(sign_ctc=True, rebuild_updater=False):
     # -- CTC 送簽前置檢查 (預設送簽; 在進版/build 之前 fail-fast) --------------
     #    缺 hsm-cli / uuid / 認證就中止, 免得白 build 一輪 (甚至白進一次版)。
     #    走 --no-sign-ctc 時跳過 (退回 signtool, 未設憑證則產出未簽 build)。
@@ -333,6 +384,45 @@ def main(sign_ctc=True):
     built_exe = os.path.join('dist', f'{OUTPUT_NAME}.exe')
 
     # -- build 更新器 (dv_updater.exe; Nuitka onefile, 溫和版) --------------
+    #    輸入沒變 (dv_updater.py / icon / Nuitka / Python) 就沿用上一版已簽好的那顆,
+    #    免一次 build + CTC 送簽; --rebuild-updater 強制重做。
+    updater_fp = updater_fingerprint()
+    reused_updater = None if rebuild_updater else reusable_updater(updater_fp)
+    if reused_updater:
+        print(f'dv_updater.exe 輸入未變, 沿用上一版已簽的 {reused_updater} (不重 build, 不送簽)')
+        built_updater = reused_updater
+    else:
+        built_updater = _build_updater(tmp_ico, num_version)
+
+    # 簽章: 預設走 CTC (hsm-cli); --no-sign-ctc 則退回 signtool sign_exe (未設憑證則略過)。
+    _sign_both(built_exe, None if reused_updater else built_updater, sign_ctc)
+
+    # -- package -------------------------------------------------------------
+    shutil.rmtree(OUTPUT_NAME, ignore_errors=True)
+    os.makedirs(OUTPUT_NAME, exist_ok=True)
+    shutil.copy2(built_exe, os.path.join(OUTPUT_NAME, f'{OUTPUT_NAME}.exe'))
+    shutil.copy2(built_exe, f'{OUTPUT_NAME}.exe')
+    shutil.copy2(built_updater, os.path.join(OUTPUT_NAME, f'{UPDATER_NAME}.exe'))
+    if not reused_updater:
+        shutil.copy2(built_updater, _signed_updater)
+        if sign_ctc:   # 只有 CTC 簽過的才值得沿用
+            write_updater_stamp(updater_fp, app_version)
+
+    # -- zip (含 DV_Utility.exe + dv_updater.exe) ----------------------------
+    zip_path = f'{OUTPUT_NAME}.zip'
+    shutil.make_archive(OUTPUT_NAME, 'zip', root_dir=OUTPUT_NAME, base_dir='.')
+
+    # -- 發佈資訊 (主程式 update_check 比版本; dv_updater.exe 下載 + 驗 sha256) --
+    #    ⚠ 此處對「未簽 zip」算 sha256。若之後走 CTC 簽章重打包, 務必再跑 --manifest-only
+    #      對最終已簽 zip 重算, 否則 updater 會因 sha256 不符而拒絕更新。
+    write_manifest(app_version, zip_path)
+
+    print('完成:', f'{OUTPUT_NAME} {app_version}',
+          '->', f'{OUTPUT_NAME}.exe / {UPDATER_NAME}.exe / {OUTPUT_NAME}.zip / publish_version.json')
+
+
+def _build_updater(tmp_ico, num_version):
+    """Nuitka onefile build dv_updater.exe -> dist/dv_updater.exe (未簽)。"""
     #    主 build 的 finally 已刪掉 tmp_ico, 這裡若不存在就重建。
     if not os.path.exists(tmp_ico):
         make_ico_from_png(_png, tmp_ico)
@@ -362,30 +452,7 @@ def main(sign_ctc=True):
     finally:
         if os.path.exists(tmp_ico):
             os.remove(tmp_ico)
-    built_updater = os.path.join('dist', f'{UPDATER_NAME}.exe')
-
-    # 簽章: 預設走 CTC (hsm-cli); --no-sign-ctc 則退回 signtool sign_exe (未設憑證則略過)。
-    _sign_both(built_exe, built_updater, sign_ctc)
-
-    # -- package -------------------------------------------------------------
-    shutil.rmtree(OUTPUT_NAME, ignore_errors=True)
-    os.makedirs(OUTPUT_NAME, exist_ok=True)
-    shutil.copy2(built_exe, os.path.join(OUTPUT_NAME, f'{OUTPUT_NAME}.exe'))
-    shutil.copy2(built_exe, f'{OUTPUT_NAME}.exe')
-    shutil.copy2(built_updater, os.path.join(OUTPUT_NAME, f'{UPDATER_NAME}.exe'))
-    shutil.copy2(built_updater, f'{UPDATER_NAME}.exe')
-
-    # -- zip (含 DV_Utility.exe + dv_updater.exe) ----------------------------
-    zip_path = f'{OUTPUT_NAME}.zip'
-    shutil.make_archive(OUTPUT_NAME, 'zip', root_dir=OUTPUT_NAME, base_dir='.')
-
-    # -- 發佈資訊 (主程式 update_check 比版本; dv_updater.exe 下載 + 驗 sha256) --
-    #    ⚠ 此處對「未簽 zip」算 sha256。若之後走 CTC 簽章重打包, 務必再跑 --manifest-only
-    #      對最終已簽 zip 重算, 否則 updater 會因 sha256 不符而拒絕更新。
-    write_manifest(app_version, zip_path)
-
-    print('完成:', f'{OUTPUT_NAME} {app_version}',
-          '->', f'{OUTPUT_NAME}.exe / {UPDATER_NAME}.exe / {OUTPUT_NAME}.zip / publish_version.json')
+    return os.path.join('dist', f'{UPDATER_NAME}.exe')
 
 
 def _regen_manifest_only():
@@ -410,9 +477,11 @@ if __name__ == '__main__':
                     help='不走 CTC 送簽; 退回既有 signtool 簽章 (未設 DVUTIL_SIGN* 憑證則產出未簽 build)')
     ap.add_argument('--sign-ctc', dest='sign_ctc', action='store_true',
                     help='(相容保留, 現已是預設) build 後用 CTC (hsm-cli) 簽兩顆 exe')
+    ap.add_argument('--rebuild-updater', action='store_true',
+                    help='一定重新 build + 簽 dv_updater.exe (預設: 輸入沒變就沿用上一版已簽的)')
     ap.set_defaults(sign_ctc=True)
     ns = ap.parse_args()
     if ns.manifest_only:
         _regen_manifest_only()
     else:
-        main(sign_ctc=ns.sign_ctc)
+        main(sign_ctc=ns.sign_ctc, rebuild_updater=ns.rebuild_updater)
