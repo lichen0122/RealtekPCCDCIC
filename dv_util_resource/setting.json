@@ -1,6 +1,6 @@
 {
 	"FileExchange - OA to NX":                          "https://storage.googleapis.com/cyvisionbot_test_2/Upload_to_NX/version_ctrl/version_RTK.json",
-	"Register - Spec. Editor":                          "https://storage.googleapis.com/cyvisionbot_test_2/RegisterEditor/version_ctrl/version_RTK.json",
+	"Register - Spec. Editor":                          "sftp://rt-nas.realsil.com.cn/Audio/Temp_RT/cychang/RegisterEditor/version_ctrl/version_RTK.json",
 	"Tcon - TconAutoGen":                               "sftp://rt-nas.realsil.com.cn/Audio/Temp_RT/lichen.liu/TconAutoGen/tcon_auto_gen_version.json",
 	"AudioDataPath - SD":                               "sftp://rt-nas.realsil.com.cn/Audio/Temp_RT/lichen.liu/AudioDataPathCheck/audio_data_path_check_version.json",
 	"AudioDataPath - Visio To GateJson":                "sftp://rt-nas.realsil.com.cn/Audio/Temp_RT/lichen.liu/AudioDataPathVisioToGateJson/audio_data_path_visio_to_gatejson_version.json",
