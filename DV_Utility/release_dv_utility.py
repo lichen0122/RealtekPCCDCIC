@@ -28,15 +28,22 @@ from PIL import Image
 OUTPUT_NAME = 'DV_Utility'
 UPDATER_NAME = 'dv_updater'
 
-# 更新檢查/下載: 發佈端上傳到 GCS 的 zip 公開網址 (dv_updater.exe 會抓它)。
+# 更新檢查/下載: 公司 RT NAS 上的 zip 與已簽章 version.json (主程式與 dv_updater.exe 只讀 NAS)。
+NAS_DIR = '/Audio/Temp_RT/lichen.liu/DVUtility'
+NAS_ZIP_PATH = NAS_DIR + '/DV_Utility.zip'
+NAS_VERSION_PATH = NAS_DIR + '/version.json'
+NAS_ZIP_URL = 'sftp://rt-nas.realsil.com.cn' + NAS_ZIP_PATH
+# 只給 v20261123 以前的舊版過渡用 (它們的更新器只會讀 GCS); upload_to_gcs.py 會換回這個網址。
 GCS_ZIP_URL = 'https://storage.googleapis.com/realtek-pccdcic-dv/DVUtility/DV_Utility.zip'
 
 _here    = os.path.dirname(os.path.abspath(__file__))
 _png     = os.path.join(_here, 'realtek.png')
 _script  = os.path.join(_here, 'dv_utility.py')
 _verfile = os.path.join(_here, 'version.json')
-_pubfile = os.path.join(_here, 'publish_version.json')   # 上傳成 GCS 的 version.json
+_pubfile = os.path.join(_here, 'publish_version.json')   # 簽章後上傳成 NAS 的 version.json
 _updater_script = os.path.join(_here, 'dv_updater.py')
+# dv_updater.exe 會一起編進去的本地模組 (改了就要重 build + 送簽)
+_updater_modules = [os.path.join(_here, n) for n in ('rtnas.py', 'update_check.py')]
 
 # Set DEBUG_BUILD=True to keep the console window for troubleshooting.
 DEBUG_BUILD = False
@@ -92,15 +99,17 @@ _signed_updater = os.path.join(_here, f'{UPDATER_NAME}.exe')
 _updater_stamp = os.path.join(_here, f'{UPDATER_NAME}.stamp.json')
 
 
-def updater_fingerprint(script=None, png=None):
-    """dv_updater.exe 的輸入指紋: 原始碼 + 內嵌 icon + Nuitka / Python 版本。
-    任一改變 -> 指紋不同 -> 重新 build + 送簽。dv_updater.py 只 import stdlib + requests。"""
+def updater_fingerprint(script=None, png=None, modules=None):
+    """dv_updater.exe 的輸入指紋: 原始碼 (含它 import 的 rtnas / update_check) + 內嵌 icon
+    + Nuitka / PySide6 / paramiko / Python 版本。任一改變 -> 指紋不同 -> 重新 build + 送簽。"""
     import importlib.metadata
     h = hashlib.sha256()
-    for path in (script or _updater_script, png or _png):
+    paths = [script or _updater_script, png or _png]
+    paths += _updater_modules if modules is None else modules
+    for path in paths:
         h.update(os.path.basename(path).encode('utf-8'))
         h.update(sha256_of(path).encode('ascii'))
-    for dist in ('nuitka', 'requests'):
+    for dist in ('nuitka', 'pyside6', 'paramiko'):
         try:
             h.update(f'{dist}={importlib.metadata.version(dist)}'.encode('utf-8'))
         except importlib.metadata.PackageNotFoundError:
@@ -137,7 +146,8 @@ def write_updater_stamp(fingerprint, app_version, exe=None, stamp=None):
 
 
 def write_manifest(app_version, zip_path, out_path=None):
-    """依「當下的 zip_path」算出 sha256/size, 寫出 GCS manifest (publish_version.json)。
+    """依「當下的 zip_path」算出 sha256/size, 寫出 manifest (publish_version.json, zip_url 指向 NAS)。
+    上傳 NAS 時 (publish_to_nas) 才加 nas_path 並簽章; 檔案本身不簽, 也供 GCS 過渡版改寫。
 
     ★ sha256 是對 zip_path 當下內容計算的。CTC 簽章是「build 後手動送簽 → 取回已簽 exe →
       重打包 zip」的事後流程, 會改變 zip 內容; 因此**簽章重打包後必須再跑一次本函式**
@@ -145,7 +155,7 @@ def write_manifest(app_version, zip_path, out_path=None):
     """
     publish = {
         'version':      app_version,
-        'zip_url':      GCS_ZIP_URL,
+        'zip_url':      NAS_ZIP_URL,
         'size':         os.path.getsize(zip_path),
         'sha256':       sha256_of(zip_path),
         'release_note': os.environ.get('DVUTIL_RELEASE_NOTE', ''),
@@ -435,7 +445,7 @@ def _build_updater(tmp_ico, num_version):
     updater_cmd = [
         sys.executable, '-m', 'nuitka',
         '--mode=onefile',
-        '--enable-plugin=tk-inter',
+        '--enable-plugin=pyside6',      # 更新視窗與主程式同風格 (Qt)
         '--onefile-tempdir-spec={CACHE_DIR}/{COMPANY}/{PRODUCT}_Updater/{VERSION}',
         '--onefile-cache-mode=cached',
         '--company-name=Realtek',
@@ -459,6 +469,23 @@ def _build_updater(tmp_ico, num_version):
         if os.path.exists(tmp_ico):
             os.remove(tmp_ico)
     return os.path.join('dist', f'{UPDATER_NAME}.exe')
+
+
+def publish_to_nas(zip_path=None, manifest=None, publish=None):
+    """把 DV_Utility.zip 與 publish_version.json 發佈到 NAS: zip 先上, version.json 加 nas_path
+    後以發佈者金鑰簽章再上 (rtnas.publish_release; 需先 `python rtnas.py keygen` / `login`)。"""
+    import rtnas
+    zip_path = zip_path or f'{OUTPUT_NAME}.zip'
+    manifest = manifest or _pubfile
+    with open(manifest, encoding='utf-8') as f:
+        pub = json.load(f)
+    if pub.get('zip_url') != NAS_ZIP_URL:
+        raise SystemExit(f'publish_version.json zip_url 不是 NAS 網址: {pub.get("zip_url")!r}'
+                         ' (先跑 --manifest-only 重算)')
+    if pub.get('sha256') != sha256_of(zip_path):
+        raise SystemExit('publish_version.json 的 sha256 與現有 DV_Utility.zip 不符 (先跑 --manifest-only)')
+    plan = [(zip_path, NAS_ZIP_PATH), (manifest, NAS_VERSION_PATH)]
+    (publish or rtnas.publish_release)(plan)
 
 
 def _regen_manifest_only():
@@ -485,9 +512,13 @@ if __name__ == '__main__':
                     help='(相容保留, 現已是預設) build 後用 CTC (hsm-cli) 簽兩顆 exe')
     ap.add_argument('--rebuild-updater', action='store_true',
                     help='一定重新 build + 簽 dv_updater.exe (預設: 輸入沒變就沿用上一版已簽的)')
+    ap.add_argument('--publish-nas', action='store_true',
+                    help='不重建; 把現有 DV_Utility.zip + 簽章後的 version.json 發佈到公司 RT NAS')
     ap.set_defaults(sign_ctc=True)
     ns = ap.parse_args()
-    if ns.manifest_only:
+    if ns.publish_nas:
+        publish_to_nas()
+    elif ns.manifest_only:
         _regen_manifest_only()
     else:
         main(sign_ctc=ns.sign_ctc, rebuild_updater=ns.rebuild_updater)

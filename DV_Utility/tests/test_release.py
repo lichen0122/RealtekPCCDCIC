@@ -16,7 +16,8 @@ def test_write_manifest(tmp_path, monkeypatch):
     pub = rel.write_manifest('v20260716.3', str(zip_path), out_path=str(out))
 
     assert pub['version'] == 'v20260716.3'
-    assert pub['zip_url'] == rel.GCS_ZIP_URL
+    assert pub['zip_url'] == rel.NAS_ZIP_URL
+    assert pub['zip_url'].startswith('sftp://rt-nas.realsil.com.cn/Audio/Temp_RT/lichen.liu/DVUtility/')
     assert pub['size'] == len(zip_bytes)
     assert pub['sha256'] == hashlib.sha256(zip_bytes).hexdigest()
     assert pub['release_note'] == '測試備註'
@@ -31,6 +32,48 @@ def test_write_manifest_default_release_note_empty(tmp_path, monkeypatch):
     monkeypatch.delenv('DVUTIL_RELEASE_NOTE', raising=False)
     pub = rel.write_manifest('v20260716', str(zip_path), out_path=str(out))
     assert pub['release_note'] == ''
+
+
+def test_publish_to_nas_plan(tmp_path):
+    zip_path = tmp_path / 'DV_Utility.zip'
+    zip_path.write_bytes(b'PK')
+    man = tmp_path / 'publish_version.json'
+    rel.write_manifest('v20261201', str(zip_path), out_path=str(man))
+    got = {}
+    rel.publish_to_nas(str(zip_path), str(man), publish=lambda plan: got.setdefault('plan', plan))
+    assert got['plan'] == [(str(zip_path), rel.NAS_ZIP_PATH), (str(man), rel.NAS_VERSION_PATH)]
+
+
+def test_publish_to_nas_refuses_stale_manifest(tmp_path):
+    zip_path = tmp_path / 'DV_Utility.zip'
+    zip_path.write_bytes(b'PK')
+    man = tmp_path / 'publish_version.json'
+    rel.write_manifest('v20261201', str(zip_path), out_path=str(man))
+    zip_path.write_bytes(b'PK-resigned')     # zip 重打包後沒重算 manifest
+    with pytest.raises(SystemExit):
+        rel.publish_to_nas(str(zip_path), str(man), publish=lambda plan: pytest.fail('no upload'))
+
+
+def test_publish_to_nas_signs_with_expected_path(tmp_path, monkeypatch):
+    import rtnas
+    import update_check
+    private, public = rtnas.generate_signing_key()
+    monkeypatch.setattr(rtnas, 'TRUSTED_RELEASE_KEYS', (public,))
+    zip_path = tmp_path / 'DV_Utility.zip'
+    zip_path.write_bytes(b'PK')
+    man = tmp_path / 'publish_version.json'
+    rel.write_manifest('v20261201', str(zip_path), out_path=str(man))
+    out = tmp_path / 'signed'
+    out.mkdir()
+    plan = [(str(zip_path), rel.NAS_ZIP_PATH), (str(man), rel.NAS_VERSION_PATH)]
+    prepared = rtnas.prepare_release(plan, private, str(out))
+    signed_json = [p for p, d in prepared if d == rel.NAS_VERSION_PATH][0]
+    # 主程式 / 更新器讀到的就是這顆: 必須通過 update_check 的完整驗證
+    with open(signed_json, 'rb') as f:
+        raw = f.read()
+    info = update_check.fetch_manifest(fetch=lambda u, store=None: raw)
+    assert info['version'] == 'v20261201'
+    assert rel.NAS_VERSION_PATH == rtnas.parse_sftp_url(update_check.VERSION_URL)[2]
 
 
 # --- CTC 送簽前置檢查 (fail-fast gate) ---------------------------------------

@@ -29,22 +29,30 @@ def upload_file(bucket_name: str, source_file: str, destination_blob: str):
 
 
 if __name__ == "__main__":
+    import json
     import os
+    import tempfile
 
+    import release_dv_utility as rel
+
+    # 過渡用: v20261123 以前的舊版只會讀 GCS 的 version.json, 也只會從 GCS 下載 zip。
+    # 新版 (主程式 + dv_updater.exe) 只讀 NAS (release_dv_utility.py --publish-nas)。
+    # 這裡把同一顆 zip 放上 GCS, 並上傳 zip_url 換回 GCS 的 version.json, 讓舊版能升到新版;
+    # 升上去之後就只看 NAS 了。
     here = os.path.dirname(os.path.abspath(__file__))
     bucket = "realtek-pccdcic-dv"
 
-    # 主程式 zip (含 DV_Utility.exe + dv_updater.exe)
     upload_file(
         bucket,
         os.path.join(here, "DV_Utility.zip"),
         "DVUtility/DV_Utility.zip",
     )
 
-    # 更新用的版本資訊 (release_dv_utility.py 產生); 主程式 update_check 會抓這顆比版本、
-    # dv_updater.exe 依它下載並驗 sha256。
-    upload_file(
-        bucket,
-        os.path.join(here, "publish_version.json"),
-        "DVUtility/version.json",
-    )
+    with open(os.path.join(here, "publish_version.json"), encoding="utf-8") as f:
+        legacy = json.load(f)
+    legacy["zip_url"] = rel.GCS_ZIP_URL
+    with tempfile.TemporaryDirectory() as tmp:
+        legacy_path = os.path.join(tmp, "version.json")
+        with open(legacy_path, "w", encoding="utf-8") as f:
+            json.dump(legacy, f, ensure_ascii=False, indent=2)
+        upload_file(bucket, legacy_path, "DVUtility/version.json")

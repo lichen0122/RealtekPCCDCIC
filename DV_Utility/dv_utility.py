@@ -863,7 +863,8 @@ class AutoUpdateGUI(QMainWindow):
     #  Update check (背景 thread) —— 只讀 JSON, 不下載/不執行
     # ------------------------------------------------------------------ #
     def _check_update(self):
-        """背景執行緒: 比對 GCS 最新版本, 有新版就通知 GUI thread 顯示更新按鈕。"""
+        """背景執行緒: 比對 NAS 上已簽章的最新版本, 有新版就通知 GUI thread 顯示更新按鈕。
+        未存 NAS 登入 / 連不上 NAS 時靜默略過 (只記 log)。"""
         try:
             info = update_check.check_latest_version(self.version)
             if info:

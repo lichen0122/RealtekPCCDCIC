@@ -1,61 +1,34 @@
+import json
 import os
 
+import pytest
+
 import dv_updater
+import rtnas
+import update_check
 
 
-def test_parse_args():
+def test_parse_args_target_only():
+    ns = dv_updater.parse_args(['--target', r'C:\PCDV\DV_Utility.exe'])
+    assert ns.target == r'C:\PCDV\DV_Utility.exe'
+    assert ns.version == ''
+
+
+def test_parse_args_accepts_and_ignores_legacy_url_args():
+    # 舊版主程式仍會帶 --zip-url/--sha256; 解析得了, 但 run_update 不用它們
     ns = dv_updater.parse_args([
-        '--version', 'v20260717',
-        '--zip-url', 'https://x/DV_Utility.zip',
-        '--sha256', 'deadbeef',
-        '--target', r'C:\PCDV\DV_Utility.exe',
-        '--parent-pid', '4321',
+        '--version', 'v20260717', '--zip-url', 'https://x/DV_Utility.zip',
+        '--sha256', 'deadbeef', '--target', r'C:\PCDV\DV_Utility.exe', '--parent-pid', '4321',
     ])
     assert ns.version == 'v20260717'
-    assert ns.zip_url == 'https://x/DV_Utility.zip'
-    assert ns.sha256 == 'deadbeef'
-    assert ns.target == r'C:\PCDV\DV_Utility.exe'
     assert ns.parent_pid == 4321
 
 
-import hashlib
-import http.server
-import threading
-import functools
-
-
-def _serve_dir(directory):
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
-    httpd = http.server.HTTPServer(('127.0.0.1', 0), handler)
-    t = threading.Thread(target=httpd.serve_forever, daemon=True)
-    t.start()
-    return httpd, httpd.server_address[1]
-
-
-def test_download_ok(tmp_path):
-    payload = b'hello-update-payload'
-    (tmp_path / 'a.bin').write_bytes(payload)
-    httpd, port = _serve_dir(tmp_path)
-    try:
-        dest = tmp_path / 'out.bin'
-        sha = hashlib.sha256(payload).hexdigest()
-        dv_updater.download(f'http://127.0.0.1:{port}/a.bin', str(dest), sha)
-        assert dest.read_bytes() == payload
-    finally:
-        httpd.shutdown()
-
-
-def test_download_sha_mismatch_removes_file(tmp_path):
-    (tmp_path / 'a.bin').write_bytes(b'xxxx')
-    httpd, port = _serve_dir(tmp_path)
-    try:
-        dest = tmp_path / 'out.bin'
-        import pytest
-        with pytest.raises(RuntimeError):
-            dv_updater.download(f'http://127.0.0.1:{port}/a.bin', str(dest), 'wrong_sha')
-        assert not dest.exists()
-    finally:
-        httpd.shutdown()
+def test_updater_does_not_import_requests_or_gcs():
+    src = open(dv_updater.__file__, encoding='utf-8').read()
+    assert 'import requests' not in src
+    assert 'storage.googleapis.com' not in src
+    assert 'storage.googleapis.com' not in open(update_check.__file__, encoding='utf-8').read()
 
 
 import zipfile
@@ -112,3 +85,97 @@ def test_swap_with_backup_rollback_on_failure(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         dv_updater.swap_with_backup(str(target), str(new))
     assert target.read_bytes() == b'OLD'
+
+
+# --- run_update: 版本資訊只取自 NAS 上已簽章的 manifest ------------------------
+
+def _zip_with_exe(path, payload=b'NEW-EXE'):
+    import zipfile
+    with zipfile.ZipFile(path, 'w') as z:
+        z.writestr('DV_Utility.exe', payload)
+        z.writestr('dv_updater.exe', b'UPD')
+
+
+def test_run_update_happy(tmp_path):
+    target = tmp_path / 'DV_Utility.exe'
+    target.write_bytes(b'OLD')
+    info = {'version': 'v20261201', 'zip_url': 'sftp://h/x.zip', 'sha256': 'abc'}
+    seen = []
+
+    def fake_download(i, dest, progress_cb=None):
+        assert i is info
+        _zip_with_exe(dest)
+        progress_cb(5, 10)
+
+    v = dv_updater.run_update(str(target), seen.append, lambda d, t: seen.append((d, t)),
+                              fetch_manifest=lambda: info, download=fake_download)
+    assert v == 'v20261201'
+    assert target.read_bytes() == b'NEW-EXE'
+    assert (tmp_path / 'DV_Utility.exe.bak').read_bytes() == b'OLD'
+    assert (5, 10) in seen
+    assert not (tmp_path / 'DV_Utility.update.part').exists()
+
+
+def test_run_update_manifest_failure_keeps_old(tmp_path):
+    target = tmp_path / 'DV_Utility.exe'
+    target.write_bytes(b'OLD')
+
+    def bad_manifest():
+        raise rtnas.IntegrityError('bad signature')
+
+    with pytest.raises(rtnas.IntegrityError):
+        dv_updater.run_update(str(target), lambda t: None, lambda d, t: None,
+                              fetch_manifest=bad_manifest,
+                              download=lambda *a, **k: pytest.fail('must not download'))
+    assert target.read_bytes() == b'OLD'
+
+
+def test_run_update_download_failure_cleans_part(tmp_path):
+    target = tmp_path / 'DV_Utility.exe'
+    target.write_bytes(b'OLD')
+    info = {'version': 'v20261201', 'zip_url': 'sftp://h/x.zip', 'sha256': 'abc'}
+
+    def broken(i, dest, progress_cb=None):
+        with open(dest, 'wb') as f:
+            f.write(b'half')
+        raise rtnas.RtnasError('network')
+
+    with pytest.raises(rtnas.RtnasError):
+        dv_updater.run_update(str(target), lambda t: None, lambda d, t: None,
+                              fetch_manifest=lambda: info, download=broken)
+    assert target.read_bytes() == b'OLD'
+    assert not (tmp_path / 'DV_Utility.update.part').exists()
+
+
+def test_download_zip_uses_saved_login_and_checks_sha(tmp_path, monkeypatch):
+    calls = {}
+
+    class FakeSession:
+        def __enter__(self):
+            return 'SFTP'
+
+        def __exit__(self, *a):
+            calls['closed'] = True
+
+    def fake_connect_url(url, store=None):
+        calls['url'] = url
+        return FakeSession(), '/Audio/x.zip'
+
+    def fake_download_to_file(sftp, remote, dest, expected_sha256=None, progress_cb=None):
+        calls.update(sftp=sftp, remote=remote, sha=expected_sha256)
+
+    monkeypatch.setattr(rtnas, 'download_to_file', fake_download_to_file)
+    dv_updater.download_zip({'zip_url': 'sftp://h/Audio/x.zip', 'sha256': 'abc'},
+                            str(tmp_path / 'p'), connect_url=fake_connect_url)
+    assert calls == {'url': 'sftp://h/Audio/x.zip', 'sftp': 'SFTP', 'remote': '/Audio/x.zip',
+                     'sha': 'abc', 'closed': True}
+
+
+@pytest.mark.parametrize('exc, words', [
+    (rtnas.AuthError('x'), '登入'),
+    (rtnas.IntegrityError('x'), '驗證失敗'),
+    (FileNotFoundError('x'), '找不到'),
+    (rtnas.RtnasError('x'), '內網'),
+])
+def test_failure_message(exc, words):
+    assert words in dv_updater.failure_message(exc)

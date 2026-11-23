@@ -16,31 +16,46 @@ def test_is_newer():
     assert uc.is_newer('v20260716.1', 'v20260716.2') is False
 
 
-class _FakeResp:
-    def __init__(self, payload):
-        self._payload = payload
+import json
 
-    def raise_for_status(self):
-        pass
+import pytest
 
-    def json(self):
-        return self._payload
+import rtnas
+
+
+def _signed(monkeypatch, **over):
+    private, public = rtnas.generate_signing_key()
+    monkeypatch.setattr(rtnas, 'TRUSTED_RELEASE_KEYS', (public,))
+    data = {'version': 'v20260717', 'zip_url': 'sftp://rt-nas.realsil.com.cn/x/DV_Utility.zip',
+            'sha256': 'abc', 'size': 1, 'release_note': '修了一些東西',
+            'nas_path': rtnas.parse_sftp_url(uc.VERSION_URL)[2]}
+    data.update(over)
+    return json.dumps(rtnas.sign_manifest(data, private)).encode('utf-8')
+
+
+def test_version_url_is_on_the_nas():
+    assert rtnas.is_sftp_url(uc.VERSION_URL)
+    assert uc.VERSION_URL.endswith('/DVUtility/version.json')
 
 
 def test_check_latest_version_returns_info_when_newer(monkeypatch):
-    payload = {'version': 'v20260717', 'zip_url': 'https://x/DV_Utility.zip',
-               'sha256': 'abc', 'size': 1, 'release_note': '修了一些東西'}
+    raw = _signed(monkeypatch)
     monkeypatch.setattr(uc, '_is_packaged', lambda: True)
-    monkeypatch.setattr(uc.requests, 'get', lambda *a, **k: _FakeResp(payload))
-    info = uc.check_latest_version('v20260716')
-    assert info == payload
+    seen = {}
+
+    def fetch(url, store=None):
+        seen['url'] = url
+        return raw
+
+    info = uc.check_latest_version('v20260716', fetch=fetch)
+    assert info['version'] == 'v20260717'
+    assert seen['url'] == uc.VERSION_URL
 
 
 def test_check_latest_version_none_when_not_newer(monkeypatch):
-    payload = {'version': 'v20260716'}
+    raw = _signed(monkeypatch, version='v20260716')
     monkeypatch.setattr(uc, '_is_packaged', lambda: True)
-    monkeypatch.setattr(uc.requests, 'get', lambda *a, **k: _FakeResp(payload))
-    assert uc.check_latest_version('v20260716') is None
+    assert uc.check_latest_version('v20260716', fetch=lambda u, store=None: raw) is None
 
 
 def test_check_latest_version_none_when_not_packaged(monkeypatch):
@@ -48,12 +63,35 @@ def test_check_latest_version_none_when_not_packaged(monkeypatch):
     assert uc.check_latest_version('v20260716') is None
 
 
-def test_check_latest_version_none_on_network_error(monkeypatch):
+def test_check_latest_version_none_on_nas_error(monkeypatch):
     def boom(*a, **k):
-        raise RuntimeError('network down')
+        raise rtnas.AuthError('no saved RT NAS credentials')
     monkeypatch.setattr(uc, '_is_packaged', lambda: True)
-    monkeypatch.setattr(uc.requests, 'get', boom)
-    assert uc.check_latest_version('v20260716') is None
+    assert uc.check_latest_version('v20260716', fetch=boom) is None
+
+
+def test_fetch_manifest_rejects_unsigned():
+    raw = json.dumps({'version': 'v20990101', 'zip_url': 'sftp://h/x.zip', 'sha256': 'a'}).encode()
+    with pytest.raises(rtnas.IntegrityError):
+        uc.fetch_manifest(fetch=lambda u, store=None: raw)
+
+
+def test_fetch_manifest_rejects_wrong_nas_path(monkeypatch):
+    raw = _signed(monkeypatch, nas_path='/Audio/Temp_RT/cychang/Other/version.json')
+    with pytest.raises(rtnas.IntegrityError):
+        uc.fetch_manifest(fetch=lambda u, store=None: raw)
+
+
+def test_fetch_manifest_rejects_gcs_zip_url(monkeypatch):
+    raw = _signed(monkeypatch, zip_url='https://example.invalid/DVUtility/DV_Utility.zip')
+    with pytest.raises(rtnas.IntegrityError):
+        uc.fetch_manifest(fetch=lambda u, store=None: raw)
+
+
+def test_fetch_manifest_rejects_missing_sha(monkeypatch):
+    raw = _signed(monkeypatch, sha256='')
+    with pytest.raises(rtnas.IntegrityError):
+        uc.fetch_manifest(fetch=lambda u, store=None: raw)
 
 
 def test_cleanup_stale_backup_removes_bak(tmp_path, monkeypatch):

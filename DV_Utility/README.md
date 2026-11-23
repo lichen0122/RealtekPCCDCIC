@@ -44,16 +44,31 @@ python release_dv_utility.py    # build 後自動 signtool sign + verify /pa
 > ⚠️ **自簽憑證不算數。** 自簽憑證無發行者信譽,SentinelOne 不會信任,無法用來驗證
 > 「簽章後是否還被擋」。要做這個測試,必須用**正式 CA 簽發**的 code-signing 憑證。
 
-## 發佈到 GCS — `upload_to_gcs.py`
+## 發佈到公司 RT NAS — `release_dv_utility.py --publish-nas`
 
 ```
-python upload_to_gcs.py
+python release_dv_utility.py --publish-nas
 ```
 
-覆蓋公開 bucket 上的 `DVUtility/DV_Utility.zip`。
+把 `DV_Utility.zip` 上傳到 `sftp://rt-nas.realsil.com.cn/Audio/Temp_RT/lichen.liu/DVUtility/`,
+再把 `publish_version.json` 加上 `nas_path`、以發佈者 Ed25519 金鑰簽章後上傳成同目錄的 `version.json`
+(需先 `python rtnas.py keygen` / `python rtnas.py login`)。zip 換過 (CTC 簽章重打包) 卻沒重算
+manifest 時拒絕上傳。
 
-> 🚨 **這是正式發佈,不是私下測試。** 已移除自我更新,上傳**不會**自動推送給既有使用者;
-> 使用者需重新下載 zip / 由 IT 重新部署才會拿到新版。只在確定要對所有人發佈時才執行。
+**更新只看 NAS**: 主程式 `update_check` 與 `dv_updater.exe` 只讀 NAS 上已簽章的 `version.json`
+(簽章、`nas_path`、NAS 上的 `zip_url` 與 `sha256` 全部要對), 以使用者存好的 NAS 登入下載 zip;
+不再向 GCS 要版本資訊。這台電腦沒存過 NAS 登入時, 主程式不顯示更新提示。
+`dv_updater.exe` 不信任命令列帶來的網址, 自己重讀 NAS manifest。
+
+更新視窗是 PySide6, 與主程式 splash 同一張深色卡片 (Realtek logo + 金黃進度條); 失敗時顯示原因、
+log 路徑 (`dv_updater.log`, 在 exe 同層) 與「開啟目前版本」。
+
+## 過渡: 舊版 (v20261123 以前) — `upload_to_gcs.py`
+
+舊版的更新器只會讀 GCS。`python upload_to_gcs.py` 把同一顆 zip 放上 GCS, 並上傳 `zip_url` 換回 GCS 的
+`version.json`, 讓舊版升到新版; 升上去之後就只看 NAS。
+
+> 🚨 **這是正式發佈。** 只在確定要對所有人發佈時才執行。
 
 ## 發佈流程(等憑證到位後)
 
@@ -61,7 +76,7 @@ python upload_to_gcs.py
 2. 設定上面的 `DVUTIL_SIGN*` 環境變數。
 3. `python release_dv_utility.py` → 確認輸出有「簽章: 完成並通過驗證」、
    或用 檔案內容 → 數位簽章 分頁檢查 exe。
-4. `python upload_to_gcs.py` 發佈。
+4. `python release_dv_utility.py --publish-nas` 發佈 (舊版過渡期再加 `python upload_to_gcs.py`)。
 5. 請 IT 把 SentinelOne 排除改為**依簽發者憑證**(一勞永逸,不必逐版加 hash)。
 
 ## SentinelOne 誤判

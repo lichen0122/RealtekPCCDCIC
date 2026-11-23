@@ -8,10 +8,11 @@ import os
 import re
 import sys
 
-import requests
+import rtnas
 
-# 發佈端 (release_dv_utility.py + upload_to_gcs.py) 上傳到 GCS 的 manifest。
-VERSION_URL = 'https://storage.googleapis.com/realtek-pccdcic-dv/DVUtility/version.json'
+# 發佈端 (release_dv_utility.py --publish-nas) 簽好並上傳到公司 RT NAS 的 manifest。
+# 只從 NAS 讀: 主程式與 dv_updater.exe 都不再向 GCS 要版本資訊。
+VERSION_URL = rtnas.build_sftp_url(rtnas.NAS_HOST, rtnas.NAS_RELEASE_ROOT + '/DVUtility/version.json')
 
 
 def _version_key(v):
@@ -30,18 +31,32 @@ def _is_packaged():
     return globals().get('__compiled__') is not None
 
 
-def check_latest_version(current_version, timeout=10):
-    """GET version.json 比對目前版本; 有更新回 info dict, 否則 None。
+def fetch_manifest(store=None, fetch=None):
+    """從 NAS 讀 DV_Utility 的 version.json 並驗證; 回傳 manifest dict。
 
-    info = {"version","zip_url","sha256","size","release_note"}
-    非打包 / 任何網路或解析錯誤 (含 manifest 尚未發佈的 404) -> None。
+    NAS 人人可寫, 所以必須: 發佈者 Ed25519 簽章有效、簽進去的 nas_path = VERSION_URL 的路徑
+    (防止別的簽章檔被搬過來)、zip_url 是 NAS 的 sftp:// 且帶 sha256。任一不符丟 rtnas 例外
+    (未存 NAS 登入 = rtnas.AuthError)。
+    """
+    raw = (fetch or rtnas.fetch_url)(VERSION_URL, store=store)
+    info = rtnas.verify_signed_json(raw, expected_path=rtnas.parse_sftp_url(VERSION_URL)[2])
+    if not rtnas.is_sftp_url(info.get('zip_url')):
+        raise rtnas.IntegrityError(f"version.json zip_url is not on the RT NAS: {info.get('zip_url')!r}")
+    if not info.get('sha256'):
+        raise rtnas.IntegrityError('version.json has no sha256 for the zip')
+    return info
+
+
+def check_latest_version(current_version, store=None, fetch=None):
+    """讀 NAS version.json 比對目前版本; 有更新回 info dict, 否則 None。
+
+    info = {"version","zip_url","sha256","size","release_note", ...}
+    非打包 / 未存 NAS 登入 / 連不上 / 簽章不符等任何錯誤 -> None。
     """
     if not _is_packaged():
         return None
     try:
-        resp = requests.get(VERSION_URL, timeout=timeout)
-        resp.raise_for_status()
-        info = resp.json()
+        info = fetch_manifest(store=store, fetch=fetch)
     except Exception:
         return None
     latest = info.get('version', '')
