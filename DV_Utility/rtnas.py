@@ -48,11 +48,17 @@ PINNED_HOST_KEYS = {
 
 DEFAULT_CREDENTIAL_PATH = Path.home() / ".PCDV" / "rtnas" / "credential.json"
 
+# Release layout (spec §27.6): a GCS object <dir>/<file> of the release bucket
+# lives on the NAS at <NAS_RELEASE_ROOT>/<dir>/<file>.
+GCS_RELEASE_PREFIX = "https://storage.googleapis.com/realtek-pccdcic-dv/"
+NAS_RELEASE_ROOT = "/Audio/Temp_RT/lichen.liu"
+
 # Ed25519 public keys (base64 of the 32 raw bytes) whose signatures make a JSON
 # fetched from the NAS trustworthy (spec §27.5). The private half lives only on
 # the publisher's machine (DEFAULT_SIGNING_KEY_PATH, DPAPI-encrypted).
 TRUSTED_RELEASE_KEYS = (
     "MdUcG0n/9RNBWZXxj4hIisfTwQmZFJFONW8XeUM85FM=",   # lichen.liu, created 2026-11-20
+    "N9NPVEMjx36aZxS/7QhxK6baDTG7JzyYQpw5u7BDjfI=",   # cychang (R7227), created 2026-11-23
 )
 SIGNATURE_FIELD = "signature"
 PATH_FIELD = "nas_path"   # signed: where the publisher put this file (anti-swap)
@@ -493,6 +499,129 @@ def fetch_url(url, *, store=None, connect=connect, expected_sha256=None,
     session, path = connect_url(url, store=store, connect=connect, timeout=timeout)
     with session as sftp:
         return fetch_bytes(sftp, path, expected_sha256=expected_sha256)
+
+
+# ── release publishing (publisher side, spec §27.6) ─────────────────────────
+
+def nas_path_for(gcs_object: str) -> str:
+    """NAS path of the release-bucket object ``<dir>/<file>``."""
+    return f"{NAS_RELEASE_ROOT}/{gcs_object.lstrip('/')}"
+
+
+def gcs_to_nas_url(url):
+    """The NAS ``sftp://`` URL for a release-bucket GCS URL; anything else as is."""
+    if isinstance(url, str) and url.startswith(GCS_RELEASE_PREFIX):
+        return build_sftp_url(NAS_HOST, nas_path_for(url[len(GCS_RELEASE_PREFIX):]))
+    return url
+
+
+def stamp_sha256(manifest, file_name, sha):
+    """Copy of *manifest* where every reference to *file_name* — the top-level
+    ``url`` or an ``update_info`` entry — carries ``sha256`` = *sha*."""
+    out = json.loads(json.dumps(manifest))
+    for entry in [out] + list(out.get("update_info", [])):
+        if isinstance(entry, dict) and \
+                posixpath.basename(str(entry.get("url", ""))) == file_name:
+            entry["sha256"] = sha
+    return out
+
+
+def _rewrite_urls(manifest):
+    out = json.loads(json.dumps(manifest))
+    for entry in [out] + list(out.get("update_info", [])):
+        if isinstance(entry, dict) and "url" in entry:
+            entry["url"] = gcs_to_nas_url(entry["url"])
+    return out
+
+
+def prepare_release(plan, private_key, out_dir):
+    """Turn a ``[(local_path, nas_path)]`` release plan into what goes on the NAS.
+
+    Archives (non-JSON) are uploaded as they are, before any JSON. Each JSON is
+    replaced by a temp copy in *out_dir* whose release-bucket GCS URLs point at
+    the NAS, stamped with the SHA-256 of every archive in the plan, bound to its
+    ``nas_path`` and signed. A NAS URL in a JSON that this plan does not upload
+    is refused (``IntegrityError``) — it would ship unverifiable. Committed files
+    are never modified, so the same release can also go to GCS."""
+    archives = [(Path(s), d) for s, d in plan if Path(s).suffix.lower() != ".json"]
+    jsons = [(Path(s), d) for s, d in plan if Path(s).suffix.lower() == ".json"]
+    hashes = {Path(d).name: sha256_file(s) for s, d in archives}
+    out = list(archives)
+    for src, dest in jsons:
+        data = _rewrite_urls(json.loads(src.read_text(encoding="utf-8")))
+        for name, sha in hashes.items():
+            data = stamp_sha256(data, name, sha)
+        require_sha256_for_sftp(data)
+        data[PATH_FIELD] = dest
+        copy = Path(out_dir) / src.name
+        copy.write_text(json.dumps(sign_manifest(data, private_key), indent=2,
+                                   ensure_ascii=False), encoding="utf-8")
+        out.append((copy, dest))
+    return out
+
+
+def _fetch_https(url) -> bytes:
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=120) as resp:
+        return resp.read()
+
+
+def fill_missing_from_gcs(plan, out_dir, *, fetch=_fetch_https):
+    """Complete *plan* with release-bucket files its JSON manifests reference but
+    the plan does not upload (rarely changed resources such as ``input.zip`` or
+    ``golden.zip``): each is downloaded from its public GCS URL into *out_dir*
+    and added, so the NAS gets exactly what users receive from GCS today."""
+    have = {dest for _src, dest in plan}
+    extra = []
+    for src, _dest in plan:
+        if Path(src).suffix.lower() != ".json":
+            continue
+        data = json.loads(Path(src).read_text(encoding="utf-8"))
+        entries = [data] + [e for e in data.get("update_info", []) if isinstance(e, dict)]
+        for entry in entries:
+            url = entry.get("url")
+            if not (isinstance(url, str) and url.startswith(GCS_RELEASE_PREFIX)):
+                continue
+            dest = nas_path_for(url[len(GCS_RELEASE_PREFIX):])
+            if dest in have:
+                continue
+            local = Path(out_dir) / posixpath.basename(dest)
+            local.write_bytes(fetch(url))
+            extra.append((local, dest))
+            have.add(dest)
+    return list(plan) + extra
+
+
+def publish_release(plan, *, key_store=None, session=None, log=print,
+                    fetch=_fetch_https):
+    """Sign and upload a ``[(local_path, nas_path)]`` release plan. Every source
+    is checked before the signing key is loaded or the NAS is contacted; files
+    the manifests reference but the plan lacks are copied from GCS."""
+    import tempfile
+
+    for src, _dest in plan:
+        if not Path(src).is_file():
+            raise SystemExit(f"Missing artifact: {src}")
+    key = (key_store or SigningKeyStore()).load()
+    if key is None:
+        raise SystemExit("No release signing key — run: python rtnas.py keygen")
+    with tempfile.TemporaryDirectory() as tmp:
+        seed_dir = Path(tmp) / "from_gcs"
+        seed_dir.mkdir()
+        plan = fill_missing_from_gcs(plan, seed_dir, fetch=fetch)
+        signed_dir = Path(tmp) / "signed"
+        signed_dir.mkdir()
+        prepared = prepare_release(plan, key, signed_dir)
+        if session is None:
+            creds = CredentialStore().load()
+            if creds is None:
+                raise SystemExit("No saved RT NAS login — run: python rtnas.py login")
+            session = connect(NAS_HOST, NAS_PORT, *creds)
+        with session as sftp:
+            for src, dest in prepared:
+                log(f"Uploading {Path(src).name} -> sftp://{NAS_HOST}{dest}")
+                put_atomic(sftp, src, dest)
+    log(f"Done — {len(prepared)} file(s) published to the RT NAS.")
 
 
 # ── command line ─────────────────────────────────────────────────────────────
