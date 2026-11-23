@@ -47,22 +47,30 @@ def fetch_manifest(store=None, fetch=None):
     return info
 
 
-def check_latest_version(current_version, store=None, fetch=None):
-    """讀 NAS version.json 比對目前版本; 有更新回 info dict, 否則 None。
+def check_for_update(current_version, store=None, fetch=None):
+    """讀 NAS version.json 比對目前版本; 有更新回 info dict, 否則 None (含非打包)。
 
-    info = {"version","zip_url","sha256","size","release_note", ...}
-    非打包 / 未存 NAS 登入 / 連不上 / 簽章不符等任何錯誤 -> None。
+    未存 NAS 登入或 NAS 拒絕已存的密碼 -> 丟 rtnas.AuthError (主程式據此跳出登入視窗);
+    其他錯誤 (連不上 / 簽章不符 ...) 照常丟出。
     """
     if not _is_packaged():
         return None
-    try:
-        info = fetch_manifest(store=store, fetch=fetch)
-    except Exception:
-        return None
+    info = fetch_manifest(store=store, fetch=fetch)
     latest = info.get('version', '')
     if latest and is_newer(latest, current_version):
         return info
     return None
+
+
+def check_latest_version(current_version, store=None, fetch=None):
+    """同 check_for_update, 但任何錯誤 (含未登入) 都回 None。
+
+    info = {"version","zip_url","sha256","size","release_note", ...}
+    """
+    try:
+        return check_for_update(current_version, store=store, fetch=fetch)
+    except Exception:
+        return None
 
 
 def launcher_exe():

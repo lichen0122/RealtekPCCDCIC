@@ -195,6 +195,7 @@ class WorkerSignals(QObject):
     set_btn_enabled    = Signal(bool)
     process_added      = Signal(object)   # 攜帶新 process 紀錄, 於 GUI thread append
     update_available   = Signal(object)   # 更新檢查: 發現新版 (攜帶 manifest info dict)
+    update_needs_login = Signal(bool)     # 更新檢查: 需要 NAS 登入 (True = 已存的密碼被 NAS 拒絕)
     show_repair        = Signal(str, bool)  # 權限修復引導: (icacls 指令, 有無 VS Code)
     set_busy           = Signal(bool)       # 連線等「不知道要多久」的步驟: 進度條改轉動 loading
 
@@ -265,14 +266,16 @@ class NasLoginDialog(QDialog):
 
     _checked = Signal(object)   # 背景 thread -> GUI thread: check_nas_login 的結果
 
-    def __init__(self, parent, host, port, user, check=check_nas_login):
+    _INTRO_TOOL = "此工具放在公司 RT NAS"
+
+    def __init__(self, parent, host, port, user, check=check_nas_login, intro=None):
         super().__init__(parent)
         self._host, self._port, self._check = host, port, check
         self.username = self.password = None
         self._busy = False
         self.setWindowTitle("登入公司 RT NAS")
         form = QFormLayout(self)
-        form.addRow(QLabel("此工具放在公司 RT NAS, 請輸入公司網域帳號密碼\n"
+        form.addRow(QLabel(f"{intro or self._INTRO_TOOL}, 請輸入公司網域帳號密碼\n"
                            "(即筆電登入密碼; 只存在本機, 以 Windows 加密保存)。"))
         self.user_edit = QLineEdit(user)
         self.pw_edit = QLineEdit()
@@ -833,6 +836,7 @@ class AutoUpdateGUI(QMainWindow):
         self.signals.process_added.connect(self._add_process)
         # 更新檢查 (worker thread -> GUI thread)
         self.signals.update_available.connect(self._slot_update_available)
+        self.signals.update_needs_login.connect(self._slot_update_needs_login)
         self.signals.show_repair.connect(self._slot_show_repair)
 
     # ------------------------------------------------------------------ #
@@ -862,18 +866,38 @@ class AutoUpdateGUI(QMainWindow):
     # ------------------------------------------------------------------ #
     #  Update check (背景 thread) —— 只讀 JSON, 不下載/不執行
     # ------------------------------------------------------------------ #
+    _UPDATE_LOGIN_INTRO = "DV_Utility 的更新檔放在公司 RT NAS"
+
     def _check_update(self):
         """背景執行緒: 比對 NAS 上已簽章的最新版本, 有新版就通知 GUI thread 顯示更新按鈕。
-        未存 NAS 登入 / 連不上 NAS 時靜默略過 (只記 log)。"""
+        這台電腦沒存 NAS 登入 / 已存的密碼被拒 -> 請 GUI thread 跳出 NAS 登入視窗;
+        連不上 NAS 等其他錯誤靜默略過 (只記 log)。"""
         try:
-            info = update_check.check_latest_version(self.version)
+            info = update_check.check_for_update(self.version, store=self.nas_store)
             if info:
                 log.info('update-check: new version available: %s', info.get('version'))
                 self.signals.update_available.emit(info)
             else:
                 log.info('update-check: no update (or not packaged)')
+        except rtnas.AuthError:
+            rejected = self.nas_store.load() is not None
+            log.info('update-check: RT NAS login needed (saved password rejected=%s)', rejected)
+            self.signals.update_needs_login.emit(rejected)
         except Exception:
             log.exception('update-check failed')
+
+    def _slot_update_needs_login(self, rejected):
+        """GUI thread: 為了檢查更新跳出 NAS 登入視窗; 登入成功立即重新檢查。
+        每次啟動最多問一次 (按取消就等下次開啟 DV_Utility 再問)。"""
+        if self.__dict__.get('_update_login_asked'):
+            return
+        self.__dict__['_update_login_asked'] = True
+        if rejected:
+            self.nas_store.clear()      # NAS 拒絕已存的密碼 (例如公司改密碼): 忘掉, 改問新的
+        if self.prompt_nas_login(url=update_check.VERSION_URL, intro=self._UPDATE_LOGIN_INTRO):
+            threading.Thread(target=self._check_update, daemon=True).start()
+        else:
+            log.info('update-check: NAS login cancelled; no update check this session')
 
     def _slot_update_available(self, info):
         """GUI thread: 顯示更新橫幅 (版本 + release note) 與一鍵按鈕。"""
@@ -1048,19 +1072,20 @@ class AutoUpdateGUI(QMainWindow):
         """所選工具需要 RT NAS, 且這台電腦還沒存過 NAS 登入。https 工具永遠 False。"""
         return bool(self.nas_login_url()) and self.nas_store.load() is None
 
-    def prompt_nas_login(self):
+    def prompt_nas_login(self, url=None, intro=None):
         """GUI thread: 詢問網域帳密, 實際連線驗證通過才存 (DPAPI 加密)。取消或失敗回 False。
+        url: 要登入的 NAS 網址 (預設 = 目前工具的); intro: 視窗說明的開頭句。
         任何意外 (網址格式、存檔失敗、build 缺 SFTP 元件) 都以訊息框告知, 不得讓視窗靜默消失。"""
         try:
-            return self._prompt_nas_login()
+            return self._prompt_nas_login(url, intro)
         except Exception as e:
             log.exception('prompt_nas_login: unexpected failure')
             QMessageBox.warning(self, "無法登入", f"RT NAS 登入時發生錯誤:\n{e}")
             return False
 
-    def _prompt_nas_login(self):
-        host, port, _path = rtnas.parse_sftp_url(self.nas_login_url())
-        dlg = NasLoginDialog(self, host, port, rtnas.default_username())
+    def _prompt_nas_login(self, url=None, intro=None):
+        host, port, _path = rtnas.parse_sftp_url(url or self.nas_login_url())
+        dlg = NasLoginDialog(self, host, port, rtnas.default_username(), intro=intro)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return False
         self.nas_store.save(dlg.username, dlg.password)

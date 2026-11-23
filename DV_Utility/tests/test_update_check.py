@@ -108,3 +108,11 @@ def test_cleanup_stale_backup_removes_bak(tmp_path, monkeypatch):
 def test_cleanup_stale_backup_noop_when_not_packaged(monkeypatch):
     monkeypatch.setattr(uc, 'launcher_exe', lambda: None)
     uc.cleanup_stale_backup()   # 不應丟例外
+
+
+def test_check_for_update_raises_auth_error(monkeypatch):
+    def no_login(*a, **k):
+        raise rtnas.AuthError('no saved RT NAS credentials')
+    monkeypatch.setattr(uc, '_is_packaged', lambda: True)
+    with pytest.raises(rtnas.AuthError):
+        uc.check_for_update('v20260716', fetch=no_login)
