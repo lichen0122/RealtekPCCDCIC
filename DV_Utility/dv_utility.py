@@ -199,6 +199,19 @@ _NAS_CONNECTING = "正在連線公司 RT NAS …"
 _NAS_UNREACHABLE = "無法連線到公司 RT NAS, 請確認已連上公司網路或 VPN 後再試"
 
 
+def _with_log(message):
+    """失敗訊息加上 log 檔完整路徑 (第二行), 使用者不必猜 log 在哪。"""
+    return f"{message}\nlog: {_get_log_dir() / 'dv_utility.log'}"
+
+
+def _missing_on_server(exc, url):
+    """伺服器上沒有這個檔: https 回 404, 或 NAS (sftp) 回 No such file。
+    這是維護者發佈漏檔, 不是使用者的網路問題 (2026-11-23 RegisterEditor 2.11.0 缺 zip)。"""
+    if isinstance(exc, requests.HTTPError):
+        return getattr(exc.response, 'status_code', None) == 404
+    return rtnas.is_sftp_url(url) and isinstance(exc, FileNotFoundError)
+
+
 def _nas_cache_path(install_dir, target):
     import hashlib
     name = hashlib.sha1(target.encode('utf-8')).hexdigest()[:16] + '.json'
@@ -678,6 +691,10 @@ class AutoUpdateGUI(QMainWindow):
         self.status_label = QLabel("")
         self.status_label.setFont(default_font)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # 失敗訊息第二行是 log 完整路徑, 太長時換行而不是撐寬視窗
+        self.status_label.setWordWrap(True)
+        # log 路徑可以選取複製
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         status_layout.addWidget(self.status_label)
 
         self.status_frame.hide()
@@ -1182,9 +1199,13 @@ class AutoUpdateGUI(QMainWindow):
             if not self._open_installed_nas_tool():
                 self.signals.update_status.emit(_NAS_UNREACHABLE)
                 self.signals.set_btn_enabled.emit(True)
-        except Exception:
+        except Exception as e:
             log.exception('check_for_update FAILED (target=%s)', getattr(self, 'target', '?'))
-            self.signals.update_status.emit("檢查更新失敗, 請確認網路連線 (詳見 log)")
+            if _missing_on_server(e, getattr(self, 'target', '')):
+                msg = "檢查更新失敗: 伺服器上的版本檔不存在, 請通知工具維護者"
+            else:
+                msg = "檢查更新失敗, 請確認網路連線"
+            self.signals.update_status.emit(_with_log(msg))
             self.signals.set_btn_enabled.emit(True)
 
     def update_progress(self, downloaded, total_length):
@@ -1290,8 +1311,10 @@ class AutoUpdateGUI(QMainWindow):
                 self.signals.set_btn_enabled.emit(True)
                 self._install_busy = False
                 return
+        current_url = ''
         try:
             for url, extract_dir, en_overwrite in self.extract_info:
+                current_url = url
                 log.info('download_file: url=%s extract_dir=%s overwrite=%s',
                          url, extract_dir, en_overwrite)
 
@@ -1338,14 +1361,18 @@ class AutoUpdateGUI(QMainWindow):
             # 寫檔被拒與網路無關, 須分開講清楚, 使用者/IT 才不會往網路方向查
             log.exception('download_file FAILED (寫檔被拒; cwd=%s)', os.getcwd())
             self._discard_temp_zip(zip_path)
-            self.signals.update_status.emit("下載失敗: 檔案寫入被拒 (權限不足, 詳見 log)")
+            self.signals.update_status.emit(_with_log("下載失敗: 檔案寫入被拒 (權限不足)"))
             self.signals.set_btn_enabled.emit(True)
             self._install_busy = False
             return
-        except Exception:
+        except Exception as e:
             log.exception('download_file FAILED (下載或安裝過程發生例外)')
             self._discard_temp_zip(zip_path)
-            self.signals.update_status.emit("下載失敗, 請確認網路連線 (詳見 log)")
+            if _missing_on_server(e, current_url):
+                msg = "下載失敗: 伺服器上的發佈檔不存在, 請通知工具維護者"
+            else:
+                msg = "下載失敗, 請確認網路連線"
+            self.signals.update_status.emit(_with_log(msg))
             self.signals.set_btn_enabled.emit(True)
             self._install_busy = False
             return
@@ -1432,7 +1459,7 @@ class AutoUpdateGUI(QMainWindow):
             proc = subprocess.Popen([exe_path, self.work_dir], cwd=self.target_directory)
         except Exception:
             log.exception('start: failed to launch %s', exe_path)
-            self.signals.update_status.emit("啟動程式失敗, 請確認檔案是否存在 (詳見 log)")
+            self.signals.update_status.emit(_with_log("啟動程式失敗, 請確認檔案是否存在"))
             return
         # start() 跑在 worker thread; 不直接 append (避免與 GUI thread 的 list 重建競態),
         # 改以 queued signal 把紀錄交給 GUI thread 處理
