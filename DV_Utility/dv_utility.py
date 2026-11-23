@@ -35,13 +35,11 @@ _CONNECT_TIMEOUT = 15
 _READ_TIMEOUT    = 60
 _HTTP_TIMEOUT    = (_CONNECT_TIMEOUT, _READ_TIMEOUT)
 
-# 工具選單 setting.json 的下載來源 (依序嘗試)。主要來源是 GCS (publish_setting.py 上傳, no-cache, 改完立刻生效);
-# GitHub raw 僅作備援 — 它有約 5 分鐘 CDN 快取 (Cache-Control: max-age=300), 剛 push 完重開 app 會拿到舊檔。
-# repo 內的 dv_util_resource/setting.json 仍是唯一的編輯來源。
-SETTING_URLS = (
-    'https://storage.googleapis.com/realtek-pccdcic-dv/DVUtility/setting.json',
-    'https://raw.github.com/lichen0122/RealtekPCCDCIC/main/dv_util_resource/setting.json',
-)
+# 工具選單 setting.json 打包在 exe 裡 (release_dv_utility.py 從 ../dv_util_resource/setting.json
+# 驗證後 include), 啟動時不再從 GCS / GitHub 下載: 改選單 = 發一版 DV_Utility。
+# 從原始碼執行時讀 repo 內那份。
+_REPO_SETTING = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             '..', 'dv_util_resource', 'setting.json')
 
 # 下載進度每累積這麼多 bytes 就記一次 log, 用來觀察下載卡在哪個進度。
 _LOG_EVERY_BYTES = 5 * 1024 * 1024
@@ -170,6 +168,12 @@ def get_bundled_path(filename):
         # Nuitka standalone/onefile: __file__ points to the actual extraction dir
         return os.path.join(os.path.dirname(__file__), filename)
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+
+
+def bundled_setting_path():
+    """工具選單 setting.json: exe 內打包的那份; 從原始碼執行 (沒打包) 時用 repo 內那份。"""
+    bundled = get_bundled_path('setting.json')
+    return bundled if os.path.isfile(bundled) else os.path.normpath(_REPO_SETTING)
 
 
 def _read_app_version():
@@ -384,7 +388,7 @@ class AutoUpdateGUI(QMainWindow):
     # ------------------------------------------------------------------ #
     def ensure_resource_files(self):
         self.resource           = f'{self.get_install_dir()}/resource'
-        self.setting_file       = f'{self.resource}/setting.json'
+        self.setting_file       = bundled_setting_path()
         self.ico_file           = get_bundled_path('realtek.png')
         self.work_dir_list_file = f'{self.resource}/work_dir_list.json'
         self.tool_history_file  = f'{self.resource}/tool_history.json'
@@ -400,14 +404,6 @@ class AutoUpdateGUI(QMainWindow):
         # 產生下拉箭頭 (macOS 風格雙 chevron) 資產, 供 QComboBox QSS 使用
         self._ensure_chevron_asset()
 
-        # 啟動載入畫面 (見 __main__ 的 create_loading_splash) 已覆蓋此處的下載等待,
-        # 故同步下載即可, 不再另開進度條 splash。
-        if not self.refresh_setting():
-            if not os.path.exists(self.setting_file):
-                log.critical('setting.json missing and every download source failed; startup cannot continue')
-                raise RuntimeError('setting.json missing and every download source failed')
-            log.warning('ensure_resource_files: falling back to existing setting.json from a previous run')
-
         if not os.path.exists(self.work_dir_list_file):
             with open(self.work_dir_list_file, 'w') as f:
                 json.dump([], f)
@@ -416,33 +412,8 @@ class AutoUpdateGUI(QMainWindow):
             with open(self.tool_history_file, 'w') as f:
                 json.dump("", f)
 
-    def refresh_setting(self):
-        """下載最新 setting.json (工具選單), 依 SETTING_URLS 順序嘗試; 成功回傳 True。
-
-        先寫成 .tmp、確認是合法 UTF-8 JSON 物件才取代正式檔 — 下載中斷 / 回傳壞內容時,
-        既有的 setting.json 完全不受影響 (呼叫端會沿用它)。"""
-        tmp = f'{self.setting_file}.tmp'
-        for url in SETTING_URLS:
-            try:
-                self.download_from_git(url, tmp)
-                with open(tmp, 'rb') as f:
-                    data = json.loads(f.read().decode('utf-8'))
-                if not isinstance(data, dict) or not data:
-                    raise ValueError('setting.json must be a non-empty JSON object')
-                os.replace(tmp, self.setting_file)
-                log.info('refresh_setting: updated from %s (%d tools)', url, len(data))
-                return True
-            except Exception:
-                log.exception('refresh_setting: source failed (url=%s)', url)
-            finally:
-                try:
-                    os.remove(tmp)
-                except OSError:
-                    pass
-        return False
-
     def load_setting(self):
-        # setting.json 由 download_from_git 以 UTF-8 原始 bytes 落地; 讀取須明示編碼 —
+        # setting.json 是 UTF-8; 讀取須明示編碼 —
         # zh-TW 機器預設 cp950, 內容一旦出現中文就會 UnicodeDecodeError (啟動失敗) 或亂碼
         with open(self.setting_file, "r", encoding="utf-8") as f:
             return json.loads(f.read())
@@ -954,33 +925,6 @@ class AutoUpdateGUI(QMainWindow):
     # ------------------------------------------------------------------ #
     #  File helpers
     # ------------------------------------------------------------------ #
-    def download_from_git(self, url, output, progress_cb=None):
-        log.info('download_from_git start: %s -> %s', url, output)
-        try:
-            with requests.get(url, stream=True, timeout=_HTTP_TIMEOUT) as r:
-                r.raise_for_status()
-                try:
-                    total_length = int(r.headers.get('content-length'))
-                except Exception:
-                    total_length = 36408565
-                downloaded = 0
-                next_mark  = _LOG_EVERY_BYTES
-                with open(output, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if chunk:
-                            downloaded += len(chunk)
-                            f.write(chunk)
-                            if progress_cb:
-                                progress_cb(downloaded, total_length)
-                            if downloaded >= next_mark:
-                                log.info('download_from_git progress: %d/%d bytes (%s)',
-                                         downloaded, total_length, url)
-                                next_mark += _LOG_EVERY_BYTES
-            log.info('download_from_git done: %d bytes -> %s', downloaded, output)
-        except Exception:
-            log.exception('download_from_git FAILED: %s -> %s', url, output)
-            raise
-
     def get_work_dir_list(self):
         self.work_dir_list = []
         if os.path.exists(self.work_dir_list_file):

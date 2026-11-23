@@ -348,67 +348,31 @@ def test_load_setting_reads_utf8(tmp_path):
     assert setting == {'暫存器編輯器': 'https://x/version.json'}
 
 
-# ---------------------------------------------------------------- refresh_setting (GCS first, GitHub fallback)
-GCS_URL, GITHUB_URL = dv_utility.SETTING_URLS
+# ---------------------------------------------------------------- tool menu bundled into the exe
+def test_menu_comes_from_the_bundle_when_packaged(monkeypatch, tmp_path):
+    bundled = tmp_path / 'setting.json'
+    bundled.write_text('{"A": "https://a/v.json"}', encoding='utf-8')
+    monkeypatch.setattr(dv_utility, 'get_bundled_path', lambda name: str(tmp_path / name))
+    assert dv_utility.bundled_setting_path() == str(bundled)
 
 
-def _setting_inst(monkeypatch, tmp_path, payloads, old=None):
-    """AutoUpdateGUI stub whose requests.get serves *payloads* {url: bytes | Exception}."""
+def test_menu_falls_back_to_the_repo_copy_from_source(monkeypatch, tmp_path):
+    monkeypatch.setattr(dv_utility, 'get_bundled_path', lambda name: str(tmp_path / name))
+    path = dv_utility.bundled_setting_path()
+    assert path.replace(os.sep, '/').endswith('dv_util_resource/setting.json')
+    assert os.path.isfile(path)
+
+
+def test_startup_never_downloads_the_menu(monkeypatch, tmp_path):
+    """ensure_resource_files must not touch the network (the menu is in the exe)."""
+    def no_network(*a, **k):
+        raise AssertionError('network access during startup')
+
+    monkeypatch.setattr(dv_utility.requests, 'get', no_network)
     inst = _bare_inst()
-    inst.setting_file = str(tmp_path / 'setting.json')
-    if old is not None:
-        (tmp_path / 'setting.json').write_bytes(old)
-    calls = []
-
-    def fake_get(url, stream=True, timeout=None):
-        calls.append(url)
-        item = payloads[url]
-        if isinstance(item, Exception):
-            raise item
-        return _FakeResponse(item)
-
-    monkeypatch.setattr(dv_utility.requests, 'get', fake_get)
-    return inst, calls
-
-
-def test_setting_sources_are_gcs_first_then_github():
-    assert GCS_URL == 'https://storage.googleapis.com/realtek-pccdcic-dv/DVUtility/setting.json'
-    assert GITHUB_URL.startswith('https://raw.github.com/lichen0122/RealtekPCCDCIC/main/')
-
-
-def test_refresh_setting_uses_gcs_and_never_touches_github(monkeypatch, tmp_path):
-    new = json.dumps({'ManPower - X': 'https://x/v.json'}, ensure_ascii=False).encode('utf-8')
-    inst, calls = _setting_inst(monkeypatch, tmp_path, {GCS_URL: new}, old=b'{"old": "https://o"}')
-    assert inst.refresh_setting() is True
-    assert calls == [GCS_URL]
-    assert (tmp_path / 'setting.json').read_bytes() == new
-    assert not (tmp_path / 'setting.json.tmp').exists()
-
-
-def test_refresh_setting_falls_back_to_github_when_gcs_fails(monkeypatch, tmp_path):
-    new = b'{"A": "https://a/v.json"}'
-    inst, calls = _setting_inst(monkeypatch, tmp_path, {GCS_URL: OSError('offline'), GITHUB_URL: new})
-    assert inst.refresh_setting() is True
-    assert calls == [GCS_URL, GITHUB_URL]
-    assert (tmp_path / 'setting.json').read_bytes() == new
-
-
-def test_refresh_setting_keeps_the_old_file_when_every_source_fails(monkeypatch, tmp_path):
-    old = b'{"old": "https://o/v.json"}'
-    inst, calls = _setting_inst(monkeypatch, tmp_path,
-                                {GCS_URL: OSError('offline'), GITHUB_URL: OSError('offline')}, old=old)
-    assert inst.refresh_setting() is False
-    assert (tmp_path / 'setting.json').read_bytes() == old
-    assert not (tmp_path / 'setting.json.tmp').exists()
-
-
-def test_refresh_setting_rejects_corrupt_content_without_clobbering(monkeypatch, tmp_path):
-    old = b'{"old": "https://o/v.json"}'
-    good = b'{"B": "https://b/v.json"}'
-    inst, calls = _setting_inst(monkeypatch, tmp_path,
-                                {GCS_URL: b'<html>not json</html>', GITHUB_URL: good}, old=old)
-    assert inst.refresh_setting() is True            # corrupt GCS body skipped, GitHub used
-    assert (tmp_path / 'setting.json').read_bytes() == good
-    inst2, _ = _setting_inst(monkeypatch, tmp_path, {GCS_URL: b'[]', GITHUB_URL: b'{}'}, old=good)
-    assert inst2.refresh_setting() is False          # wrong shape on both -> keep the file
-    assert (tmp_path / 'setting.json').read_bytes() == good
+    inst.get_install_dir = lambda: str(tmp_path)
+    inst._ensure_chevron_asset = lambda: None
+    inst.ensure_resource_files()
+    assert inst.setting_file == dv_utility.bundled_setting_path()
+    assert inst.load_setting()
+    assert not hasattr(dv_utility, 'SETTING_URLS')

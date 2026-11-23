@@ -89,3 +89,9 @@ python upload_to_gcs.py
   且 NAS 上的 zip 必須帶 `sha256`;否則顯示「發佈檔簽章驗證失敗」不更新。`https://` 工具不檢查簽章。
   發佈端以 pcdic_skills 的 `upload_to_nas.py` 簽 (私鑰只在發佈者電腦,`python rtnas.py keygen`)。
 - `rtnas.py` 與 pcdic_skills 的同名檔逐字相同,改一份要同步另一份。
+
+## 工具選單 setting.json 打包在 exe 內
+
+`../dv_util_resource/setting.json` 由 `release_dv_utility.py` 先用 `setting_menu.validate` 檢查,
+再打包進 `DV_Utility.exe`; 啟動時不再從 GCS / GitHub 下載。改選單 = commit setting.json 後發一版
+DV_Utility。GCS 上的 `DVUtility/setting.json` 只剩 v20261123 以前的舊版在讀, 保持原樣。
