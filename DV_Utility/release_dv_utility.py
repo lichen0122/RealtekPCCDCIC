@@ -28,12 +28,12 @@ from PIL import Image
 OUTPUT_NAME = 'DV_Utility'
 UPDATER_NAME = 'dv_updater'
 
-# 更新檢查/下載: 公司 RT NAS 上的 zip 與已簽章 version.json (主程式與 dv_updater.exe 只讀 NAS)。
+# 更新檢查/下載雙來源: 先 GCS (upload_to_gcs.py 上傳), 不通才讀公司 RT NAS 上的 zip 與已簽章 version.json。
 NAS_DIR = '/Audio/Temp_RT/lichen.liu/DVUtility'
 NAS_ZIP_PATH = NAS_DIR + '/DV_Utility.zip'
 NAS_VERSION_PATH = NAS_DIR + '/version.json'
 NAS_ZIP_URL = 'sftp://rt-nas.realsil.com.cn' + NAS_ZIP_PATH
-# 只給 v20261123 以前的舊版過渡用 (它們的更新器只會讀 GCS); upload_to_gcs.py 會換回這個網址。
+# GCS 那份 version.json 的 zip_url (新版預設來源, 舊版唯一來源); upload_to_gcs.py 會換成這個網址。
 GCS_ZIP_URL = 'https://storage.googleapis.com/realtek-pccdcic-dv/DVUtility/DV_Utility.zip'
 
 _here    = os.path.dirname(os.path.abspath(__file__))

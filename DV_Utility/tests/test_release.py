@@ -71,7 +71,7 @@ def test_publish_to_nas_signs_with_expected_path(tmp_path, monkeypatch):
     # 主程式 / 更新器讀到的就是這顆: 必須通過 update_check 的完整驗證
     with open(signed_json, 'rb') as f:
         raw = f.read()
-    info = update_check.fetch_manifest(fetch=lambda u, store=None: raw)
+    info = update_check.fetch_nas_manifest(fetch=lambda u, store=None: raw)
     assert info['version'] == 'v20261201'
     assert rel.NAS_VERSION_PATH == rtnas.parse_sftp_url(update_check.VERSION_URL)[2]
 

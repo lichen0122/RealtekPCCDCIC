@@ -35,10 +35,9 @@ if __name__ == "__main__":
 
     import release_dv_utility as rel
 
-    # 過渡用: v20261123 以前的舊版只會讀 GCS 的 version.json, 也只會從 GCS 下載 zip。
-    # 新版 (主程式 + dv_updater.exe) 只讀 NAS (release_dv_utility.py --publish-nas)。
-    # 這裡把同一顆 zip 放上 GCS, 並上傳 zip_url 換回 GCS 的 version.json, 讓舊版能升到新版;
-    # 升上去之後就只看 NAS 了。
+    # GCS 是 DV_Utility 更新的預設來源 (新版先讀 GCS, 不通才讀 NAS; 舊版只會讀 GCS)。
+    # 這裡把同一顆 zip 放上 GCS, 並上傳 zip_url 換成 GCS 的 version.json;
+    # NAS 那份由 release_dv_utility.py --publish-nas 簽章上傳, 兩邊每次都要發。
     here = os.path.dirname(os.path.abspath(__file__))
     bucket = "realtek-pccdcic-dv"
 

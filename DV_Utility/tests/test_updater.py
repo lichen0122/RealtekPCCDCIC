@@ -24,11 +24,10 @@ def test_parse_args_accepts_and_ignores_legacy_url_args():
     assert ns.parent_pid == 4321
 
 
-def test_updater_does_not_import_requests_or_gcs():
+def test_updater_reads_version_info_itself():
+    # the caller's --zip-url/--sha256 are never used: the manifest comes from update_check
     src = open(dv_updater.__file__, encoding='utf-8').read()
-    assert 'import requests' not in src
-    assert 'storage.googleapis.com' not in src
-    assert 'storage.googleapis.com' not in open(update_check.__file__, encoding='utf-8').read()
+    assert 'args.zip_url' not in src and 'args.sha256' not in src
 
 
 import zipfile
@@ -108,7 +107,7 @@ def test_run_update_happy(tmp_path):
         progress_cb(5, 10)
 
     v = dv_updater.run_update(str(target), seen.append, lambda d, t: seen.append((d, t)),
-                              fetch_manifest=lambda: info, download=fake_download)
+                              fetch_manifest=lambda **k: info, download=fake_download)
     assert v == 'v20261201'
     assert target.read_bytes() == b'NEW-EXE'
     assert (tmp_path / 'DV_Utility.exe.bak').read_bytes() == b'OLD'
@@ -120,7 +119,7 @@ def test_run_update_manifest_failure_keeps_old(tmp_path):
     target = tmp_path / 'DV_Utility.exe'
     target.write_bytes(b'OLD')
 
-    def bad_manifest():
+    def bad_manifest(**k):
         raise rtnas.IntegrityError('bad signature')
 
     with pytest.raises(rtnas.IntegrityError):
@@ -142,7 +141,7 @@ def test_run_update_download_failure_cleans_part(tmp_path):
 
     with pytest.raises(rtnas.RtnasError):
         dv_updater.run_update(str(target), lambda t: None, lambda d, t: None,
-                              fetch_manifest=lambda: info, download=broken)
+                              fetch_manifest=lambda **k: info, download=broken)
     assert target.read_bytes() == b'OLD'
     assert not (tmp_path / 'DV_Utility.update.part').exists()
 

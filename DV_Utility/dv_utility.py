@@ -867,11 +867,11 @@ class AutoUpdateGUI(QMainWindow):
     # ------------------------------------------------------------------ #
     #  Update check (背景 thread) —— 只讀 JSON, 不下載/不執行
     # ------------------------------------------------------------------ #
-    _UPDATE_LOGIN_INTRO = "DV_Utility 的更新檔放在公司 RT NAS"
+    _UPDATE_LOGIN_INTRO = "GCS 無法連線, DV_Utility 的更新改從公司 RT NAS 檢查"
 
     def _check_update(self):
-        """背景執行緒: 比對 NAS 上已簽章的最新版本, 有新版就通知 GUI thread 顯示更新按鈕。
-        這台電腦沒存 NAS 登入 / 已存的密碼被拒 -> 請 GUI thread 跳出 NAS 登入視窗;
+        """背景執行緒: 比對最新版本 (先 GCS, 不通才讀 NAS 上已簽章的), 有新版就通知 GUI thread 顯示更新按鈕。
+        GCS 不通且這台電腦沒存 NAS 登入 / 已存的密碼被拒 -> 請 GUI thread 跳出 NAS 登入視窗;
         連不上 NAS 等其他錯誤靜默略過 (只記 log)。"""
         try:
             info = update_check.check_for_update(self.version, store=self.nas_store)
@@ -905,7 +905,7 @@ class AutoUpdateGUI(QMainWindow):
         self._update_info = info
         latest = info.get('version', '')
         note = info.get('release_note', '')
-        self.update_label.setText(f"發現新版本 {latest} (目前 {self.version})")
+        self.update_label.setText(f"發現新版本 {latest} (目前 {self.version}, 來源: {info.get('source') or '?'})")
         self._set_note_text(self.update_note_view, note)
         self.update_frame.show()
 

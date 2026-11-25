@@ -1,8 +1,9 @@
 """DV_Utility 更新器 (半自動一鍵更新的 helper)。
 
 由 DV_Utility.exe 在使用者按下「一鍵更新並重啟」後啟動; 主程式隨即退出。
-本程式負責: 自己從公司 RT NAS 讀已簽章的 version.json (不信任命令列帶來的網址, 也不碰 GCS)
--> 以使用者存好的 NAS 登入下載新版 zip 並驗 sha256 -> 解壓出新 DV_Utility.exe
+本程式負責: 自己讀 version.json (不信任命令列帶來的網址; 先 GCS, GCS 不通才讀公司 RT NAS
+上已簽章的那份) -> 從同一來源下載新版 zip 並驗 sha256 (GCS 下載失敗也改走 NAS)
+-> 解壓出新 DV_Utility.exe
 -> 待舊檔解鎖後就地替換 (舊檔改 .bak) -> 啟動新版 -> 結束。
 
 視窗與主程式同風格 (PySide6, 深色卡片 + Realtek logo + 金黃進度條)。
@@ -18,6 +19,8 @@ import sys
 import threading
 import time
 import zipfile
+
+import requests
 
 import rtnas
 import update_check
@@ -35,7 +38,7 @@ def parse_args(argv):
     p.add_argument('--target', required=True, help='要被替換並重啟的 DV_Utility.exe 絕對路徑')
     p.add_argument('--version', default='', help='主程式看到的新版本 (只用於顯示)')
     p.add_argument('--parent-pid', type=int, default=0)
-    # 舊版主程式會帶這兩個; 一律忽略 —— 下載網址與 sha256 只取自 NAS 上已簽章的 version.json。
+    # 舊版主程式會帶這兩個; 一律忽略 —— 下載網址與 sha256 只取自更新器自己讀到的 version.json。
     p.add_argument('--zip-url', default='', help=argparse.SUPPRESS)
     p.add_argument('--sha256', default='', help=argparse.SUPPRESS)
     return p.parse_args(argv)
@@ -53,25 +56,54 @@ def _bundled_path(name):
 def failure_message(exc):
     """把例外轉成給使用者看的一句話 (log 另記完整例外)。"""
     if isinstance(exc, rtnas.AuthError):
-        return ('尚未登入公司 RT NAS, 或 NAS 密碼已變更。\n'
+        return ('GCS 無法連線, 改走公司 RT NAS 但尚未登入 (或 NAS 密碼已變更)。\n'
                 '請在 DV_Utility 開啟任一 NAS 工具重新登入後, 再按一次更新。')
     if isinstance(exc, rtnas.IntegrityError):
         return '發佈檔簽章或 sha256 驗證失敗, 已中止更新。請通知工具維護者。'
     if isinstance(exc, FileNotFoundError):
         return 'NAS 上找不到新版發佈檔, 請通知工具維護者。'
-    if isinstance(exc, rtnas.RtnasError):
-        return '連不上公司 RT NAS, 請確認電腦在公司內網後再試。'
+    if isinstance(exc, (rtnas.RtnasError, requests.RequestException)):
+        return 'GCS 與公司 RT NAS 都連不上, 請確認電腦在公司內網 (或 VPN) 後再試。'
     if isinstance(exc, PermissionError):
         return 'DV_Utility.exe 仍被占用, 無法替換。請確認 DV_Utility 已完全關閉後再試。'
     return f'更新失敗: {exc}'
 
 
-def download_zip(info, dest, progress_cb=None, store=None, connect_url=None):
-    """以存好的 NAS 登入下載 info['zip_url'] 到 dest, 並比對 info['sha256'] (不符刪檔丟 IntegrityError)。"""
+def download_zip(info, dest, progress_cb=None, store=None, connect_url=None, get=None):
+    """下載 info['zip_url'] 到 dest 並比對 info['sha256'] (不符刪檔丟 IntegrityError)。
+    https (GCS) 走 requests; sftp (NAS) 以存好的 NAS 登入。"""
+    if not rtnas.is_sftp_url(info['zip_url']):
+        _download_https(info, dest, progress_cb, get or requests.get)
+        return
     session, remote = (connect_url or rtnas.connect_url)(info['zip_url'], store=store)
     with session as sftp:
         rtnas.download_to_file(sftp, remote, dest, expected_sha256=info['sha256'],
                                progress_cb=progress_cb)
+
+
+def _download_https(info, dest, progress_cb, get):
+    done = 0
+    try:
+        with get(info['zip_url'], stream=True, timeout=(10, 60)) as r:
+            r.raise_for_status()
+            total = int(r.headers.get('content-length') or info.get('size') or 0)
+            with open(dest, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=1024 * 256):
+                    if chunk:
+                        f.write(chunk)
+                        done += len(chunk)
+                        if progress_cb:
+                            progress_cb(done, total)
+        if rtnas.sha256_file(dest).lower() != str(info['sha256']).lower():
+            raise rtnas.IntegrityError(f"SHA-256 mismatch for {info['zip_url']}")
+    except Exception:
+        _remove_quiet(dest)
+        raise
+
+
+def source_label(info):
+    """顯示用的來源名稱: zip 在 RT NAS = "NAS", 否則 "GCS"。"""
+    return 'NAS' if rtnas.is_sftp_url(info.get('zip_url', '')) else 'GCS'
 
 
 def extract_main_exe(zip_path, dest_exe):
@@ -136,8 +168,12 @@ def _remove_quiet(*paths):
             pass
 
 
-def run_update(target, status, progress, *, fetch_manifest=None, download=None):
+def run_update(target, status, progress, *, fetch_manifest=None, download=None,
+               fetch_nas_manifest=None):
     """執行一次更新; 成功回新版本字串, 失敗丟例外 (呼叫端負責顯示並重啟舊版)。
+
+    先 GCS、不通才 NAS (update_check.fetch_manifest); GCS 的 zip 下載失敗 (斷線 / sha256 不符)
+    時改讀 NAS 的 version.json 從 NAS 重下一次。
 
     status(text): 不確定時長的階段; progress(done, total): 下載進度。
     失敗時清掉暫存; 若 swap 途中 target 被騰空, 盡力從 .bak 還原, 確保使用者仍有 app 可開。
@@ -147,12 +183,30 @@ def run_update(target, status, progress, *, fetch_manifest=None, download=None):
     new_exe = os.path.join(work_dir, 'DV_Utility.update.new')  # 解壓出的新 exe (同磁碟區)
     _remove_quiet(part, new_exe)
     try:
-        status('讀取 NAS 版本資訊 …')
-        info = (fetch_manifest or update_check.fetch_manifest)()
+        status('讀取版本資訊 …')
+
+        def _gcs_failed(e):
+            _log(target, f'GCS manifest failed: {e!r}; trying RT NAS')
+            status('GCS 無法連線, 改從公司 RT NAS 讀取版本資訊 …')
+
+        info = (fetch_manifest or update_check.fetch_manifest)(on_fallback=_gcs_failed)
         version = info.get('version', '')
-        _log(target, f'manifest OK: {version} {info.get("zip_url")}')
-        status(f'下載中 … ({version})')
-        (download or download_zip)(info, part, progress_cb=progress)
+        _log(target, f'manifest OK ({source_label(info)}): {version} {info.get("zip_url")}')
+        status(f'下載中 (來源: {source_label(info)}) … ({version})')
+        try:
+            (download or download_zip)(info, part, progress_cb=progress)
+        except (requests.RequestException, rtnas.IntegrityError) as e:
+            if source_label(info) != 'GCS':
+                raise
+            # GCS 下載途中斷線或內容不符: 改讀 NAS 已簽章的 version.json, 從 NAS 重下
+            _log(target, f'GCS download failed: {e!r}; trying RT NAS')
+            _remove_quiet(part)
+            status('GCS 下載失敗, 改從公司 RT NAS 下載 …')
+            info = (fetch_nas_manifest or update_check.fetch_nas_manifest)()
+            version = info.get('version', '')
+            _log(target, f'manifest OK (NAS): {version} {info.get("zip_url")}')
+            status(f'下載中 (來源: NAS) … ({version})')
+            (download or download_zip)(info, part, progress_cb=progress)
         status('安裝中 …')
         extract_main_exe(part, new_exe)
         _remove_quiet(part)

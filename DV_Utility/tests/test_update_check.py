@@ -19,8 +19,13 @@ def test_is_newer():
 import json
 
 import pytest
+import requests
 
 import rtnas
+
+
+def _gcs_down(*a, **k):
+    raise requests.ConnectionError('storage.googleapis.com unreachable')
 
 
 def _signed(monkeypatch, **over):
@@ -47,7 +52,7 @@ def test_check_latest_version_returns_info_when_newer(monkeypatch):
         seen['url'] = url
         return raw
 
-    info = uc.check_latest_version('v20260716', fetch=fetch)
+    info = uc.check_latest_version('v20260716', fetch=fetch, get=_gcs_down)
     assert info['version'] == 'v20260717'
     assert seen['url'] == uc.VERSION_URL
 
@@ -55,7 +60,7 @@ def test_check_latest_version_returns_info_when_newer(monkeypatch):
 def test_check_latest_version_none_when_not_newer(monkeypatch):
     raw = _signed(monkeypatch, version='v20260716')
     monkeypatch.setattr(uc, '_is_packaged', lambda: True)
-    assert uc.check_latest_version('v20260716', fetch=lambda u, store=None: raw) is None
+    assert uc.check_latest_version('v20260716', fetch=lambda u, store=None: raw, get=_gcs_down) is None
 
 
 def test_check_latest_version_none_when_not_packaged(monkeypatch):
@@ -67,31 +72,31 @@ def test_check_latest_version_none_on_nas_error(monkeypatch):
     def boom(*a, **k):
         raise rtnas.AuthError('no saved RT NAS credentials')
     monkeypatch.setattr(uc, '_is_packaged', lambda: True)
-    assert uc.check_latest_version('v20260716', fetch=boom) is None
+    assert uc.check_latest_version('v20260716', fetch=boom, get=_gcs_down) is None
 
 
 def test_fetch_manifest_rejects_unsigned():
     raw = json.dumps({'version': 'v20990101', 'zip_url': 'sftp://h/x.zip', 'sha256': 'a'}).encode()
     with pytest.raises(rtnas.IntegrityError):
-        uc.fetch_manifest(fetch=lambda u, store=None: raw)
+        uc.fetch_nas_manifest(fetch=lambda u, store=None: raw)
 
 
 def test_fetch_manifest_rejects_wrong_nas_path(monkeypatch):
     raw = _signed(monkeypatch, nas_path='/Audio/Temp_RT/cychang/Other/version.json')
     with pytest.raises(rtnas.IntegrityError):
-        uc.fetch_manifest(fetch=lambda u, store=None: raw)
+        uc.fetch_nas_manifest(fetch=lambda u, store=None: raw)
 
 
 def test_fetch_manifest_rejects_gcs_zip_url(monkeypatch):
     raw = _signed(monkeypatch, zip_url='https://example.invalid/DVUtility/DV_Utility.zip')
     with pytest.raises(rtnas.IntegrityError):
-        uc.fetch_manifest(fetch=lambda u, store=None: raw)
+        uc.fetch_nas_manifest(fetch=lambda u, store=None: raw)
 
 
 def test_fetch_manifest_rejects_missing_sha(monkeypatch):
     raw = _signed(monkeypatch, sha256='')
     with pytest.raises(rtnas.IntegrityError):
-        uc.fetch_manifest(fetch=lambda u, store=None: raw)
+        uc.fetch_nas_manifest(fetch=lambda u, store=None: raw)
 
 
 def test_cleanup_stale_backup_removes_bak(tmp_path, monkeypatch):
@@ -115,4 +120,4 @@ def test_check_for_update_raises_auth_error(monkeypatch):
         raise rtnas.AuthError('no saved RT NAS credentials')
     monkeypatch.setattr(uc, '_is_packaged', lambda: True)
     with pytest.raises(rtnas.AuthError):
-        uc.check_for_update('v20260716', fetch=no_login)
+        uc.check_for_update('v20260716', fetch=no_login, get=_gcs_down)
