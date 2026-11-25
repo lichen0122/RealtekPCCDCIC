@@ -19,6 +19,7 @@ from logging.handlers import RotatingFileHandler
 import update_check
 import update_install
 import rtnas
+import setting_menu
 
 
 # --------------------------------------------------------------------------- #
@@ -1024,7 +1025,9 @@ class AutoUpdateGUI(QMainWindow):
             log.exception('start_update: failed to write tool history %s', self.tool_history_file)
 
         log.info('start_update: tool=%s', self.tool_history)
-        self.target = self.setting[self.choose_tool.currentText()]
+        # 工具可同時列 GCS 與 NAS: 先走 GCS, GCS 不通才改 NAS (check_for_update 內切換)
+        self.sources = setting_menu.sources(self.setting[self.choose_tool.currentText()])
+        self.target = self.sources[0]
         self.ensure_work_dir()
 
     def check_work_dir(self):
@@ -1062,11 +1065,36 @@ class AutoUpdateGUI(QMainWindow):
         target = getattr(self, 'target', '')
         if rtnas.is_sftp_url(target):
             return target
-        return self.__dict__.get('_nas_login_urls', {}).get(target)
+        return self.__dict__.get('_nas_login_urls', {}).get(self._tool_key())
+
+    def _tool_key(self):
+        """目前工具的識別: 第一個來源的網址 (GCS+NAS 雙來源工具改走 NAS 後, self.target 會變)。"""
+        return (getattr(self, 'sources', None) or [getattr(self, 'target', '')])[0]
+
+    def _nas_fallback_url(self):
+        """目前走 GCS、且此工具另有 NAS 來源時, 回傳 NAS 的 manifest 網址; 否則 None。"""
+        target = getattr(self, 'target', '')
+        if rtnas.is_sftp_url(target):
+            return None
+        for url in getattr(self, 'sources', None) or []:
+            if rtnas.is_sftp_url(url):
+                return url
+        return None
+
+    def _switch_to_nas(self, reason):
+        """背景 thread: GCS 不通 → 此工具改從 NAS 下載。沒有 NAS 來源回 False。"""
+        nas = self._nas_fallback_url()
+        if not nas:
+            return False
+        log.warning('GCS failed for %s (%s); switching to RT NAS %s', self.target, reason, nas)
+        self.target = nas
+        self.signals.update_status.emit("GCS 無法連線, 改從公司 RT NAS 下載 …")
+        self.signals.set_busy.emit(True)
+        return True
 
     def _remember_nas_url(self, url):
         """背景 thread: 記住目前工具需要 NAS 登入 (下次按開啟時於 GUI thread 詢問)。"""
-        self.__dict__.setdefault('_nas_login_urls', {})[getattr(self, 'target', '')] = url
+        self.__dict__.setdefault('_nas_login_urls', {})[self._tool_key()] = url
 
     def needs_nas_login(self):
         """所選工具需要 RT NAS, 且這台電腦還沒存過 NAS 登入。https 工具永遠 False。"""
@@ -1110,8 +1138,13 @@ class AutoUpdateGUI(QMainWindow):
         log.info('offline: opening installed %s %s', self.exe_name, installed)
         self.start()
         self.signals.update_release.emit(
-            f"當前版本 {installed} (無法連線公司 RT NAS, 未檢查更新)", self.release_note)
+            f"當前版本 {installed} ({self._unreachable_where()}, 未檢查更新)", self.release_note)
         return True
+
+    def _unreachable_where(self):
+        if len(getattr(self, 'sources', None) or []) > 1:
+            return "GCS 與公司 RT NAS 都無法連線"
+        return "無法連線公司 RT NAS"
 
     def _nas_auth_failed(self):
         """背景 thread: NAS 拒絕已存的帳密 → 忘掉它, 下次點選開啟時重新詢問。"""
@@ -1128,7 +1161,7 @@ class AutoUpdateGUI(QMainWindow):
             self.signals.set_busy.emit(True)
 
         try:
-            self.get_newest_version()
+            self._get_newest_version_or_nas()
             self.get_current_version()
             self.get_extract_info()
 
@@ -1167,7 +1200,9 @@ class AutoUpdateGUI(QMainWindow):
         except rtnas.RtnasError:
             log.exception('check_for_update: RT NAS unreachable (target=%s)', getattr(self, 'target', '?'))
             if not self._open_installed_nas_tool():
-                self.signals.update_status.emit(_NAS_UNREACHABLE)
+                self.signals.update_status.emit(
+                    _NAS_UNREACHABLE if len(getattr(self, 'sources', None) or []) < 2 else
+                    "GCS 與公司 RT NAS 都無法連線, 請確認已連上公司網路或 VPN 後再試")
                 self.signals.set_btn_enabled.emit(True)
         except Exception as e:
             log.exception('check_for_update FAILED (target=%s)', getattr(self, 'target', '?'))
@@ -1180,6 +1215,15 @@ class AutoUpdateGUI(QMainWindow):
 
     def update_progress(self, downloaded, total_length):
         self.signals.update_progress.emit(downloaded, total_length)
+
+    def _get_newest_version_or_nas(self):
+        """先從目前來源 (GCS) 讀 manifest; 失敗且此工具另有 NAS 來源 → 改讀 NAS 的。"""
+        try:
+            self.get_newest_version()
+        except Exception as e:
+            if not self._switch_to_nas(e):
+                raise
+            self.get_newest_version()
 
     def get_newest_version(self):
         log.info('get_newest_version: fetching %s', self.target)
@@ -1199,6 +1243,10 @@ class AutoUpdateGUI(QMainWindow):
             r = requests.get(self.target, timeout=_HTTP_TIMEOUT)
             r.raise_for_status()
             self.newest_version_info = json.loads(r.text)
+            nas = self._nas_fallback_url()
+            if nas:
+                # GCS+NAS 雙來源: 之後 GCS 與 NAS 都連不上時, 仍可開啟已安裝的版本
+                save_nas_manifest_cache(self.get_install_dir(), nas, self.newest_version_info)
         self.target_directory    = self.get_install_dir() + "/" + self.newest_version_info["target_directory"]
         self.update_info         = self.newest_version_info['update_info']
         self.current_version     = self.target_directory + "/" + self.newest_version_info["current_version"]
@@ -1303,7 +1351,8 @@ class AutoUpdateGUI(QMainWindow):
 
                 if case1 or case2:
                     log.info('download_file: downloading %s -> %s', url, zip_path)
-                    self.signals.update_status.emit("下載中 ...")
+                    self.signals.update_status.emit(
+                        f"下載中 (來源: {setting_menu.source_label(url)}) ...")
                     downloaded = self._fetch_to_file(url, zip_path, zip_file_name)
                     log.info('download_file: download done %d bytes -> %s',
                              downloaded, zip_path)
@@ -1338,6 +1387,12 @@ class AutoUpdateGUI(QMainWindow):
         except Exception as e:
             log.exception('download_file FAILED (下載或安裝過程發生例外)')
             self._discard_temp_zip(zip_path)
+            if (isinstance(e, requests.RequestException) and not rtnas.is_sftp_url(current_url)
+                    and self._switch_to_nas(e)):
+                # GCS 下載途中斷線: 整個工具改從 NAS 重新檢查並下載 (版本以 NAS manifest 為準)
+                self._install_busy = False
+                threading.Thread(target=self.check_for_update, daemon=True).start()
+                return
             if _missing_on_server(e, current_url):
                 msg = "下載失敗: 伺服器上的發佈檔不存在, 請通知工具維護者"
             else:
@@ -1375,7 +1430,7 @@ class AutoUpdateGUI(QMainWindow):
             except rtnas.AuthError:
                 self._remember_nas_url(url)
                 raise
-            self.signals.update_status.emit("下載中 ...")
+            self.signals.update_status.emit("下載中 (來源: NAS) ...")
             with session as sftp:
                 return rtnas.download_to_file(sftp, remote, zip_path, expected_sha256=expected,
                                               progress_cb=self.update_progress)
@@ -1414,7 +1469,8 @@ class AutoUpdateGUI(QMainWindow):
 
     def start(self):
         self.signals.update_release.emit(
-            f"當前版本 {self.newest_version_info['version']}",
+            f"當前版本 {self.newest_version_info['version']} "
+            f"(來源: {setting_menu.source_label(getattr(self, 'target', ''))})",
             f"{self.release_note}"
         )
         self.signals.update_status.emit("更新完成, 程式已自動開啟")

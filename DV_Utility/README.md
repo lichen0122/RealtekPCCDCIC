@@ -109,4 +109,23 @@ log 路徑 (`dv_updater.log`, 在 exe 同層) 與「開啟目前版本」。
 
 `../dv_util_resource/setting.json` 由 `release_dv_utility.py` 先用 `setting_menu.validate` 檢查,
 再打包進 `DV_Utility.exe`; 啟動時不再從 GCS / GitHub 下載。改選單 = commit setting.json 後發一版
-DV_Utility。GCS 上的 `DVUtility/setting.json` 只剩 v20261123 以前的舊版在讀, 保持原樣。
+DV_Utility。GCS 上的 `DVUtility/setting.json` 只剩 v20261123 以前的舊版在讀, 保持原樣
+(舊版只看得懂單一網址字串, 不可把雙來源格式發佈到那裡)。
+
+### 雙來源: 預設 GCS, GCS 不通才改 NAS
+
+每個工具的值可以是單一網址, 或同時列兩個來源:
+
+```json
+"Tool A": "https://storage.googleapis.com/.../a_version.json",
+"Tool B": {"gcs": "https://storage.googleapis.com/.../b_version.json",
+           "nas": "sftp://rt-nas.realsil.com.cn/Audio/Temp_RT/lichen.liu/B/b_version.json"}
+```
+
+- 雙來源工具一律先讀 GCS 的 version.json; 讀不到 (連不上、逾時、HTTP 錯誤、內容壞) 才改讀 NAS 的
+  version.json, 之後 zip 也照 NAS manifest 從 NAS 下載。GCS 下載 zip 途中斷線也會整個改走 NAS 重來。
+- 狀態列顯示來源: 「下載中 (來源: GCS) ...」/「下載中 (來源: NAS) ...」, 版本列「當前版本 X (來源: GCS)」;
+  切換時顯示「GCS 無法連線, 改從公司 RT NAS 下載 …」。
+- GCS 能用時不需要 NAS 登入; 改走 NAS 時才需要 (沒存過就提示再按一次開啟並登入)。
+- 改走 NAS 後套用 NAS 的規則: 簽章、sha256、不降版。GCS 與 NAS 都連不上時, 開啟已安裝的版本。
+- 兩邊須發佈同一版 (pcdic_skills / 各工具的 `upload_to_gcs.py` 已同時跑 `upload_to_nas`)。
