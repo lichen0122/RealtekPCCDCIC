@@ -20,6 +20,9 @@ python release_dv_utility.py
 依序執行:**進版**(寫 `version.json`,日期制 `vYYYYMMDD[.N]`)→ Nuitka onefile build →
 **(選配)簽章** → 打包 `DV_Utility.zip`。
 
+CTC 簽章前 `scan_before_sign` 先用 File-Sanitizer OPSWAT 掃每顆要簽的 exe 與它們打成的 zip,
+任何一個不是 `pass` (含掃描跑不起來) 就中止, 不送簽 (owner 2026-11-26: 掃不過先處理, 不拿去 CTC 簽章)。
+
 ## 簽章(選配 — 需 code-signing 憑證)
 
 由環境變數啟用;**未設定則自動略過**(產出未簽章 build,流程不受影響)。憑證來源擇一:

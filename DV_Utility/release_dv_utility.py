@@ -311,6 +311,35 @@ def _check_ctc_prereqs(hsm_dir=None):
     print('CTC 送簽前置檢查通過 (送簽時會先跑 OPSWAT 預檢, 再送 hsm-cli; 半自動流程可能需 FEDEX 核准)')
 
 
+def scan_before_sign(exes, scan=None, log=print):
+    """File-Sanitizer OPSWAT verdict for each exe and for a zip of them (what users download),
+    before anything goes to CTC signing (owner, 2026-11-26). Fail-closed: a scan that cannot
+    run is not a pass, and the release stops without signing."""
+    import tempfile
+    import zipfile
+    import file_sanitizer
+    if scan is None:
+        scan = lambda f: file_sanitizer.Sanitizer().scan(f, log=log)
+    with tempfile.TemporaryDirectory() as tmp:
+        zpath = os.path.join(tmp, f'{OUTPUT_NAME}_prescan.zip')
+        with zipfile.ZipFile(zpath, 'w', zipfile.ZIP_DEFLATED) as z:
+            for exe in exes:
+                z.write(exe, os.path.basename(exe))
+        bad = []
+        for f in list(exes) + [zpath]:
+            log(f'OPSWAT 掃描 {f} ({os.path.getsize(f) / 1e6:.1f} MB)')
+            try:
+                verdict = scan(f)
+            except file_sanitizer.FsError as e:
+                verdict = f'not run: {e}'
+            log(f'=> {os.path.basename(f)}: {verdict}')
+            if verdict != 'pass':
+                bad.append(f'{os.path.basename(f)}: {verdict}')
+    if bad:
+        raise SystemExit('OPSWAT 沒有通過, 不送 CTC 簽章: ' + '; '.join(bad))
+    log('OPSWAT 全部 pass, 開始 CTC 簽章')
+
+
 def _sign_both(built_exe, built_updater, sign_ctc):
     """簽兩顆 exe: sign_ctc=True 走 CTC (hsm-cli, 半自動; 送簽前先跑 OPSWAT 預檢,
     再等主管 FEDEX 核准); 否則走既有 signtool sign_exe (未設憑證則略過)。
@@ -331,6 +360,8 @@ def _sign_both(built_exe, built_updater, sign_ctc):
         os.environ.setdefault('FSANITIZE_CLI', fs_cli)
     if os.path.isfile(fs_cfg):
         os.environ.setdefault('FSANITIZE_CONFIG', fs_cfg)
+    # ctc_sign's own pre-check fails open when the scan cannot run: scan first, fail-closed.
+    scan_before_sign(exes)
     for exe in exes:
         print(f'CTC 簽署 {exe} … (送簽前先跑 OPSWAT 預檢; 送簽後如需核准請至 FEDEX)')
         tmp = exe + '.signed'
