@@ -18,5 +18,6 @@
 	                                      "nas": "sftp://rt-nas.realsil.com.cn/Audio/Temp_RT/lichen.liu/GateLevelDesign/version_gate_level_design.json"},
 	"AI - PCDIC Skills":                 {"gcs": "https://storage.googleapis.com/realtek-pccdcic-dv/PCDICskills/version_pcdic_skills.json",
 	                                      "nas": "sftp://rt-nas.realsil.com.cn/Audio/Temp_RT/lichen.liu/PCDICskills/version_pcdic_skills.json"},
-	"SD - ICIDETool":                    "https://storage.googleapis.com/cyvisionbot_test_2/IcIdeTool/version_ctrl/version_RTK.json"
+	"SD - ICIDETool":                    "https://storage.googleapis.com/cyvisionbot_test_2/IcIdeTool/version_ctrl/version_RTK.json",
+	"AI - Cue Teams 回覆助理":           "https://storage.googleapis.com/realtek-pccdcic-dv/Cue/cue_version.json"
 }
