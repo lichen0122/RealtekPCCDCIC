@@ -1332,6 +1332,15 @@ class AutoUpdateGUI(QMainWindow):
                 # 掃描失敗不擋更新 — 鎖檔真發生時 promote 會分類成 locked
                 log.exception('download_file: process scan failed (略過, 照常更新)')
                 running = []
+            stop_args = (getattr(self, 'newest_version_info', None) or {}).get('stop_args')
+            exe_name = getattr(self, 'exe_name', '')
+            if running and isinstance(stop_args, list) and stop_args and exe_name:
+                # 背景常駐的工具 (Cue) 自帶優雅關閉指令: 先請舊版自己停下, 再照常更新
+                exe_path = os.path.join(target_dir, exe_name)
+                log.info('download_file: %s still running %s; asking it to stop (%s)',
+                         exe_name, running, stop_args)
+                self.signals.update_status.emit("正在關閉背景執行中的舊版, 稍後自動更新 …")
+                running = update_install.stop_tool(exe_path, [str(a) for a in stop_args], target_dir)
             if running:
                 log.error('download_file: tools still running under %s: %s',
                           target_dir, running)

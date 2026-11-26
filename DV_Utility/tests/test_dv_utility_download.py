@@ -371,3 +371,73 @@ def test_startup_reads_the_menu_through_setting_menu(monkeypatch, tmp_path):
     assert inst.load_setting() == {"A": "https://a/v.json"} and inst.setting_source == "GCS"
     assert seen["cache"] == inst.setting_file
     assert seen["fallback"] and seen["fallback"].replace(os.sep, "/").endswith("dv_util_resource/setting.json")
+
+
+def _running_cue(monkeypatch, tmp_path, stops_ok):
+    """Cue 舊版仍在背景執行 (托盤 + 服務), manifest 帶 stop_args=["stop"]。"""
+    target_dir = tmp_path / 'PCDV' / 'Cue'
+    (target_dir / 'pcdic-cue').mkdir(parents=True)
+    exe = target_dir / 'pcdic-cue' / 'pcdic-cue.exe'
+    exe.write_bytes(b'OLD')
+    payload = _zip_bytes({'pcdic-cue/pcdic-cue.exe': b'NEW'})
+    inst, statuses, versions = _make_inst(
+        monkeypatch, {URL: payload}, [(URL, str(target_dir), True)], tmp_path / 'stage')
+    inst.target_directory = str(target_dir)
+    inst.exe_name = 'pcdic-cue/pcdic-cue.exe'
+    inst.newest_version_info = {'version': '2026-11-27-001', 'stop_args': ['stop']}
+    alive = {'on': True}
+    calls = []
+
+    def fake_run(argv, **kw):
+        calls.append((argv, kw))
+        if stops_ok:
+            alive['on'] = False
+    monkeypatch.setattr(dv_utility.update_install.subprocess, 'run', fake_run)
+    monkeypatch.setattr(dv_utility.update_install, 'snapshot_processes',
+                        lambda: [(4321, str(exe))] if alive['on'] else [])
+    return inst, statuses, versions, exe, calls
+
+
+def test_download_file_stops_a_background_tool_that_declares_stop_args(monkeypatch, tmp_path):
+    """使用者沒關 Cue 就從 DV_Utility 開啟: 先請舊版自己停下 (pcdic-cue.exe stop), 再更新。"""
+    inst, statuses, versions, exe, calls = _running_cue(monkeypatch, tmp_path, stops_ok=True)
+
+    inst.download_file()
+
+    argv, kw = calls[0]
+    assert argv == [os.path.join(inst.target_directory, 'pcdic-cue/pcdic-cue.exe'), 'stop']
+    assert kw['creationflags'] & dv_utility.update_install._NO_WINDOW
+    assert exe.read_bytes() == b'NEW'
+    assert versions == [{'version': '2026-11-27-001'}]
+    assert statuses[-1] == '安裝完成'
+
+
+def test_download_file_still_blocks_when_the_tool_does_not_stop(monkeypatch, tmp_path):
+    inst, statuses, versions, exe, calls = _running_cue(monkeypatch, tmp_path, stops_ok=False)
+    monkeypatch.setattr(dv_utility.update_install, 'stop_tool',
+                        lambda exe_path, args, target: [(4321, str(exe))])
+
+    inst.download_file()
+
+    assert versions == [] and exe.read_bytes() == b'OLD'
+    assert '執行中' in statuses[-1] and '關閉' in statuses[-1]
+
+
+def test_stop_tool_polls_until_the_processes_are_gone():
+    seen = iter([[(1, r'C:\PCDV\Cue\pcdic-cue\pcdic-cue.exe')], []])
+    ran = []
+    t = {'now': 0.0}
+    left = dv_utility.update_install.stop_tool(
+        r'C:\PCDV\Cue\pcdic-cue\pcdic-cue.exe', ['stop'], r'C:\PCDV\Cue',
+        snapshot=lambda: next(seen), run=lambda argv, **kw: ran.append(argv),
+        sleep=lambda s: t.update(now=t['now'] + s), clock=lambda: t['now'])
+    assert left == [] and ran == [[r'C:\PCDV\Cue\pcdic-cue\pcdic-cue.exe', 'stop']]
+
+
+def test_stop_tool_gives_up_after_the_wait():
+    proc = [(1, r'C:\PCDV\Cue\pcdic-cue\pcdic-cue.exe')]
+    t = {'now': 0.0}
+    left = dv_utility.update_install.stop_tool(
+        r'C:\PCDV\Cue\pcdic-cue\pcdic-cue.exe', ['stop'], r'C:\PCDV\Cue', snapshot=lambda: proc,
+        run=lambda argv, **kw: None, wait=5, sleep=lambda s: t.update(now=t['now'] + s), clock=lambda: t['now'])
+    assert left == proc

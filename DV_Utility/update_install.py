@@ -82,6 +82,32 @@ def procs_under(dir_path, procs):
     return hits
 
 
+def stop_tool(exe_path, stop_args, target_dir, snapshot=None, run=None,
+              wait=20, poll=0.5, sleep=None, clock=None):
+    """請「自己會優雅關閉」的工具先停下 (manifest 的 ``stop_args``, 例如 Cue 的 ``["stop"]``)。
+
+    背景常駐的工具 (Cue: 托盤 + 背景服務) 使用者不會想到要先關; 執行舊版 exe 的
+    ``<exe> <stop_args...>`` (無視窗), 再輪詢 target_dir 底下的行程直到清空或逾時。
+    回傳仍在執行的 ``[(pid, exe)]`` (空 = 已全部結束)。不 kill: 逾時就交給呼叫端照舊引導。
+    """
+    import time
+    snapshot = snapshot or snapshot_processes
+    run = run or subprocess.run
+    sleep = sleep or time.sleep
+    clock = clock or time.monotonic
+    try:
+        run([exe_path, *stop_args], capture_output=True, text=True, timeout=30,
+            creationflags=_NO_WINDOW, cwd=os.path.dirname(exe_path))
+    except Exception:
+        log.exception('stop_tool: %s %s failed', exe_path, stop_args)
+    end = clock() + wait
+    while True:
+        running = procs_under(target_dir, snapshot())
+        if not running or clock() >= end:
+            return running
+        sleep(poll)
+
+
 @dataclass
 class RepairPlan:
     """權限修復引導: 指令由使用者自己在 VS Code terminal / PowerShell 執行 —
