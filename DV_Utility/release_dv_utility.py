@@ -348,10 +348,7 @@ def main(sign_ctc=True, rebuild_updater=False):
     if sign_ctc:
         _check_ctc_prereqs()
 
-    # -- 工具選單 setting.json 打包進 exe: 先驗證, 壞檔不 build -----------------
-    import setting_menu
-    menu = setting_menu.validate()
-    print(f'工具選單: {len(menu)} 個工具 ({setting_menu.SOURCE}) 將打包進 exe')
+    # 工具選單不打包: DV_Utility 啟動時從 GCS / NAS 讀 (改選單用 `python setting_menu.py publish`)
 
     # -- 進版 (先進版, 再打包) ------------------------------------------------
     app_version = bump_version(_verfile)          # 例: v20260604
@@ -377,7 +374,6 @@ def main(sign_ctc=True, rebuild_updater=False):
         f'--windows-icon-from-ico={tmp_ico}',
         f'--include-data-files={_png}=realtek.png',
         f'--include-data-files={_verfile}=version.json',   # 把進版後的 version.json 一起打包
-        f'--include-data-files={setting_menu.SOURCE}=setting.json',   # 工具選單 (啟動不再下載)
         '--assume-yes-for-downloads',
         f'--jobs={NUITKA_JOBS}',
         '--output-dir=dist',

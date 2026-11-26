@@ -36,9 +36,9 @@ _CONNECT_TIMEOUT = 15
 _READ_TIMEOUT    = 60
 _HTTP_TIMEOUT    = (_CONNECT_TIMEOUT, _READ_TIMEOUT)
 
-# 工具選單 setting.json 打包在 exe 裡 (release_dv_utility.py 從 ../dv_util_resource/setting.json
-# 驗證後 include), 啟動時不再從 GCS / GitHub 下載: 改選單 = 發一版 DV_Utility。
-# 從原始碼執行時讀 repo 內那份。
+# 工具選單: 啟動時先從 GCS 讀 DVUtility/menu.json, 不通改讀 RT NAS 上已簽章的那份 (setting_menu.py),
+# 兩邊都不通用上次成功讀到的副本 (resource/setting.json); 從原始碼執行時最後再退回 repo 內那份。
+# 不打包進 exe: 改選單只要 `python setting_menu.py publish`, 不必發一版 DV_Utility。
 _REPO_SETTING = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              '..', 'dv_util_resource', 'setting.json')
 
@@ -171,10 +171,15 @@ def get_bundled_path(filename):
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
 
 
-def bundled_setting_path():
-    """工具選單 setting.json: exe 內打包的那份; 從原始碼執行 (沒打包) 時用 repo 內那份。"""
-    bundled = get_bundled_path('setting.json')
-    return bundled if os.path.isfile(bundled) else os.path.normpath(_REPO_SETTING)
+def _is_packaged_exe():
+    """True in the Nuitka-built DV_Utility.exe (no repo copy of the menu there)."""
+    return "__compiled__" in globals()
+
+
+def repo_setting_path():
+    """repo 內的 setting.json (只在從原始碼執行、且 GCS / NAS / 快取都拿不到時使用)。"""
+    path = os.path.normpath(_REPO_SETTING)
+    return path if os.path.isfile(path) else None
 
 
 def _read_app_version():
@@ -392,7 +397,7 @@ class AutoUpdateGUI(QMainWindow):
     # ------------------------------------------------------------------ #
     def ensure_resource_files(self):
         self.resource           = f'{self.get_install_dir()}/resource'
-        self.setting_file       = bundled_setting_path()
+        self.setting_file       = f'{self.resource}/setting.json'   # 上次讀到的選單 (離線時用)
         self.ico_file           = get_bundled_path('realtek.png')
         self.work_dir_list_file = f'{self.resource}/work_dir_list.json'
         self.tool_history_file  = f'{self.resource}/tool_history.json'
@@ -417,10 +422,15 @@ class AutoUpdateGUI(QMainWindow):
                 json.dump("", f)
 
     def load_setting(self):
-        # setting.json 是 UTF-8; 讀取須明示編碼 —
-        # zh-TW 機器預設 cp950, 內容一旦出現中文就會 UnicodeDecodeError (啟動失敗) 或亂碼
-        with open(self.setting_file, "r", encoding="utf-8") as f:
-            return json.loads(f.read())
+        """工具選單: GCS -> RT NAS (驗簽章) -> 上次的副本 -> (原始碼執行時) repo 那份。
+
+        JSON 一律以 UTF-8 解碼 (zh-TW 機器預設 cp950, 中文會 UnicodeDecodeError 或亂碼)。"""
+        menu, source = setting_menu.load_menu(
+            self.setting_file, store=self.nas_store,
+            fallback_path=None if _is_packaged_exe() else repo_setting_path(), log=log.warning)
+        self.setting_source = source
+        log.info('tool menu from %s (%d tools)', source, len(menu))
+        return menu
 
     def get_install_dir(self):
         home_path = Path.home() / 'PCDV'

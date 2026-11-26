@@ -107,12 +107,22 @@ log 路徑 (`dv_updater.log`, 在 exe 同層) 與「開啟目前版本」。
   發佈端以 pcdic_skills 的 `upload_to_nas.py` 簽 (私鑰只在發佈者電腦,`python rtnas.py keygen`)。
 - `rtnas.py` 與 pcdic_skills 的同名檔逐字相同,改一份要同步另一份。
 
-## 工具選單 setting.json 打包在 exe 內
+## 工具選單: 啟動時先 GCS, 不通才 NAS (不打包進 exe)
 
-`../dv_util_resource/setting.json` 由 `release_dv_utility.py` 先用 `setting_menu.validate` 檢查,
-再打包進 `DV_Utility.exe`; 啟動時不再從 GCS / GitHub 下載。改選單 = commit setting.json 後發一版
-DV_Utility。GCS 上的 `DVUtility/setting.json` 只剩 v20261123 以前的舊版在讀, 保持原樣
-(舊版只看得懂單一網址字串, 不可把雙來源格式發佈到那裡)。
+編輯 `../dv_util_resource/setting.json`, commit 後發佈:
+
+```
+venv\Scripts\python.exe setting_menu.py publish          # GCS + 已簽章的 NAS
+venv\Scripts\python.exe setting_menu.py publish --no-nas # 只更新 GCS
+```
+
+`publish` 驗證後上傳 GCS `DVUtility/menu.json` (`{"menu": {...}}`)、舊版用的 GCS
+`DVUtility/setting.json` (每項只留 GCS 網址字串; v20261123 以前只看得懂這種), 以及 NAS
+`/Audio/Temp_RT/lichen.liu/DVUtility/menu.json` (發佈者簽章 + nas_path, `rtnas.publish_release`)。
+
+DV_Utility 啟動時 (`setting_menu.load_menu`): GCS menu.json → 不通讀 NAS 那份並驗簽章 / 路徑 →
+都不通用上次成功讀到的 `~/PCDV/resource/setting.json` → (只在原始碼執行時) repo 內那份。
+改選單不必發 DV_Utility。
 
 ### 雙來源: 預設 GCS, GCS 不通才改 NAS
 

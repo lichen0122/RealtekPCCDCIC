@@ -334,7 +334,7 @@ def test_check_for_update_starts_daemon_download_thread(monkeypatch):
     assert created.get('daemon') is True
 
 
-def test_load_setting_reads_utf8(tmp_path):
+def test_load_setting_reads_utf8(monkeypatch, tmp_path):
     """setting.json 由 GitHub 以 UTF-8 bytes 下載, 讀取不得依賴系統編碼 (cp950)。"""
     inst = _bare_inst()
     setting_file = tmp_path / 'setting.json'
@@ -342,37 +342,32 @@ def test_load_setting_reads_utf8(tmp_path):
         json.dumps({'暫存器編輯器': 'https://x/version.json'},
                    ensure_ascii=False).encode('utf-8'))
     inst.setting_file = str(setting_file)
+    inst.nas_store = None
+    monkeypatch.setattr(dv_utility.setting_menu, "fetch_gcs_menu", lambda **k: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr(dv_utility.setting_menu, "fetch_nas_menu", lambda **k: (_ for _ in ()).throw(OSError("offline")))
 
-    setting = inst.load_setting()
+    setting = inst.load_setting()  # offline: the cached copy, read as UTF-8
 
     assert setting == {'暫存器編輯器': 'https://x/version.json'}
 
 
-# ---------------------------------------------------------------- tool menu bundled into the exe
-def test_menu_comes_from_the_bundle_when_packaged(monkeypatch, tmp_path):
-    bundled = tmp_path / 'setting.json'
-    bundled.write_text('{"A": "https://a/v.json"}', encoding='utf-8')
-    monkeypatch.setattr(dv_utility, 'get_bundled_path', lambda name: str(tmp_path / name))
-    assert dv_utility.bundled_setting_path() == str(bundled)
+# ---------------------------------------------------------------- tool menu read at start
+def test_startup_reads_the_menu_through_setting_menu(monkeypatch, tmp_path):
+    """The menu is not bundled: load_setting asks setting_menu (GCS -> NAS -> cache) and keeps the
+    cache under resource/."""
+    seen = {}
 
+    def fake_load(cache_path, store=None, fallback_path=None, log=None, **kw):
+        seen.update(cache=cache_path, fallback=fallback_path)
+        return {"A": "https://a/v.json"}, "GCS"
 
-def test_menu_falls_back_to_the_repo_copy_from_source(monkeypatch, tmp_path):
-    monkeypatch.setattr(dv_utility, 'get_bundled_path', lambda name: str(tmp_path / name))
-    path = dv_utility.bundled_setting_path()
-    assert path.replace(os.sep, '/').endswith('dv_util_resource/setting.json')
-    assert os.path.isfile(path)
-
-
-def test_startup_never_downloads_the_menu(monkeypatch, tmp_path):
-    """ensure_resource_files must not touch the network (the menu is in the exe)."""
-    def no_network(*a, **k):
-        raise AssertionError('network access during startup')
-
-    monkeypatch.setattr(dv_utility.requests, 'get', no_network)
+    monkeypatch.setattr(dv_utility.setting_menu, "load_menu", fake_load)
     inst = _bare_inst()
     inst.get_install_dir = lambda: str(tmp_path)
     inst._ensure_chevron_asset = lambda: None
+    inst.nas_store = object()
     inst.ensure_resource_files()
-    assert inst.setting_file == dv_utility.bundled_setting_path()
-    assert inst.load_setting()
-    assert not hasattr(dv_utility, 'SETTING_URLS')
+    assert inst.setting_file.replace(os.sep, "/").endswith("resource/setting.json")
+    assert inst.load_setting() == {"A": "https://a/v.json"} and inst.setting_source == "GCS"
+    assert seen["cache"] == inst.setting_file
+    assert seen["fallback"] and seen["fallback"].replace(os.sep, "/").endswith("dv_util_resource/setting.json")
